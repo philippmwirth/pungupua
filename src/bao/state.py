@@ -35,6 +35,7 @@ INIT_BOARD = jnp.array([
 ], jnp.int16)
 
 NYUMBA_COL = 4
+OPP_NYUMBA_COL = 3  # opponent's nyumba in board[2]: 7 - NYUMBA_COL
 LEFT_KICHWA = 0
 LEFT_KIMBI = 1
 RIGHT_KIMBI = 6

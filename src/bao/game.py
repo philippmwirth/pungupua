@@ -49,7 +49,8 @@ class Game:
                 seeds = b[0, NYUMBA_COL].astype(jnp.int16)
                 b = b.at[0, NYUMBA_COL].set(jnp.int16(0))
                 nr, nc = next_pos(jnp.int32(0), jnp.int32(NYUMBA_COL), d)
-                b, ny_pend, pend_dir = sow(b, seeds, nr, nc, d, allow_capture=True)
+                b, ny_pend, pend_dir, _ = sow(b, seeds, nr, nc, d, allow_capture=True,
+                                              nyumba_active=jnp.bool_(False))
                 na = s.nyumba_active.at[0].set(False)  # nyumba has been sowed out
                 na = deactivate_nyumba_if_sowed(b, na, s.board)
 
@@ -77,10 +78,10 @@ class Game:
             prev_board = s.board
 
             def namua(st: GameState):
-                b, na, stk, ny_pend, pend_dir = namua_step(
+                b, na, stk, ny_pend, pend_dir, ny_emp = namua_step(
                     st.board, st.stock, st.nyumba_active, col, direction
                 )
-                na = deactivate_nyumba_if_sowed(b, na, prev_board)
+                na = deactivate_nyumba_if_sowed(b, na, prev_board, ny_emp)
                 new_stage = jnp.where(
                     (stk[0] == 0) & (st.stock[1] == 0),
                     jnp.int32(1), st.stage
@@ -88,10 +89,10 @@ class Game:
                 return b, na, stk, ny_pend, pend_dir, new_stage
 
             def mtaji(st: GameState):
-                b, na, ny_pend, pend_dir = mtaji_step(
+                b, na, ny_pend, pend_dir, ny_emp = mtaji_step(
                     st.board, st.nyumba_active, row, col, direction
                 )
-                na = deactivate_nyumba_if_sowed(b, na, prev_board)
+                na = deactivate_nyumba_if_sowed(b, na, prev_board, ny_emp)
                 return b, na, st.stock, ny_pend, pend_dir, st.stage
 
             b, na, stk, ny_pend, pend_dir, new_stage = jax.lax.cond(
