@@ -2,9 +2,8 @@
 
 import jax
 import jax.numpy as jnp
-import pytest
 from bao import Game
-from bao.state import GameState, NUM_ACTIONS
+from bao.state import GameState
 
 
 g = Game()
@@ -75,7 +74,16 @@ def test_no_singletons_sowed_in_mtaji():
     """
     board = jnp.array(
         [
-            [0, 1, 2, 3, 0, 0, 0, 0],  # col2=2 added so both col2 and col3 are paired non-singletons
+            [
+                0,
+                1,
+                2,
+                3,
+                0,
+                0,
+                0,
+                0,
+            ],  # col2=2 added so both col2 and col3 are paired non-singletons
             [0, 0, 0, 0, 0, 0, 0, 0],
             [0, 0, 2, 2, 0, 0, 0, 0],  # two paired non-singleton holes -> no mtaji-moja
             [0, 0, 0, 0, 0, 0, 0, 0],

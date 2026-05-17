@@ -1,4 +1,5 @@
 """Board-level helpers: turn flip, sow-path indexing, observation encoding."""
+
 import jax
 import jax.numpy as jnp
 from jax import Array
@@ -6,12 +7,14 @@ from jax import Array
 
 def flip_board(board: Array, nyumba_active: Array, stock: Array):
     """Flip board so the next player sees themselves at rows 0-1."""
-    new_board = jnp.stack([
-        board[2, ::-1],
-        board[3, ::-1],
-        board[0, ::-1],
-        board[1, ::-1],
-    ])
+    new_board = jnp.stack(
+        [
+            board[2, ::-1],
+            board[3, ::-1],
+            board[0, ::-1],
+            board[1, ::-1],
+        ]
+    )
     new_nyumba = jnp.array([nyumba_active[1], nyumba_active[0]])
     new_stock = jnp.array([stock[1], stock[0]], jnp.int16)
     return new_board, new_nyumba, new_stock
@@ -36,7 +39,7 @@ def next_pos(row: Array, col: Array, direction: Array):
     # Right path: front col 0->7 = pos 0->7, back col 7->0 = pos 8->15
     # Left  path: front col 7->0 = pos 0->7, back col 0->7 = pos 8->15
     pos_right = jnp.where(row == 0, col, jnp.int32(15) - col)
-    pos_left  = jnp.where(row == 0, jnp.int32(7) - col, jnp.int32(8) + col)
+    pos_left = jnp.where(row == 0, jnp.int32(7) - col, jnp.int32(8) + col)
 
     pos = jnp.where(direction == 1, pos_right, pos_left)
     pos = (pos + 1) % 16
@@ -75,8 +78,9 @@ def forced_direction(col: Array) -> Array:
     return jnp.where(col <= 1, jnp.int32(1), jnp.int32(0))
 
 
-def make_observation(board: Array, nyumba_active: Array, color: Array,
-                     current_player: Array) -> Array:
+def make_observation(
+    board: Array, nyumba_active: Array, color: Array, current_player: Array
+) -> Array:
     """Return (4, 8, 67) float32 observation from the perspective of `color`."""
     obs_board = jax.lax.cond(
         color == current_player,

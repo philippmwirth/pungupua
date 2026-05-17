@@ -27,12 +27,24 @@ class GameState(NamedTuple):
 
 
 # Starting board from current player's perspective
-INIT_BOARD = jnp.array([
-    [0, 0, 0, 0, 6, 2, 2, 0],  # current player front: nyumba=6 at col4
-    [0, 0, 0, 0, 0, 0, 0, 0],  # current player back
-    [0, 2, 2, 6, 0, 0, 0, 0],  # opponent front: nyumba=6 at col3 (their col4 mirrored)
-    [0, 0, 0, 0, 0, 0, 0, 0],  # opponent back
-], jnp.int16)
+INIT_BOARD = jnp.array(
+    [
+        [0, 0, 0, 0, 6, 2, 2, 0],  # current player front: nyumba=6 at col4
+        [0, 0, 0, 0, 0, 0, 0, 0],  # current player back
+        [
+            0,
+            2,
+            2,
+            6,
+            0,
+            0,
+            0,
+            0,
+        ],  # opponent front: nyumba=6 at col3 (their col4 mirrored)
+        [0, 0, 0, 0, 0, 0, 0, 0],  # opponent back
+    ],
+    jnp.int16,
+)
 
 NYUMBA_COL = 4
 OPP_NYUMBA_COL = 3  # opponent's nyumba in board[2]: 7 - NYUMBA_COL

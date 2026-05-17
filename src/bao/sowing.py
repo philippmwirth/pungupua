@@ -1,4 +1,5 @@
 """Core sowing while_loop kernel."""
+
 import jax
 import jax.numpy as jnp
 from jax import Array
@@ -9,9 +10,15 @@ from .state import NYUMBA_COL
 MAX_ITER = 256
 
 
-def sow(board: Array, seeds: Array, row: Array, col: Array,
-        direction: Array, allow_capture: bool | Array = True,
-        nyumba_active: bool | Array = True):
+def sow(
+    board: Array,
+    seeds: Array,
+    row: Array,
+    col: Array,
+    direction: Array,
+    allow_capture: bool | Array = True,
+    nyumba_active: bool | Array = True,
+):
     """Sow `seeds` starting at (row, col) going in `direction`.
 
     Returns (new_board, nyumba_pending, pending_direction, nyumba_emptied).
@@ -37,6 +44,7 @@ def sow(board: Array, seeds: Array, row: Array, col: Array,
     (i.e. landing there is treated as a normal occupied hole).
     """
     nyumba_active = jnp.bool_(nyumba_active)
+
     # Carry: (board, seeds, row, col, direction, done, nyumba_pending,
     #        nyumba_emptied, _iter)
     def cond(carry):
@@ -51,7 +59,7 @@ def sow(board: Array, seeds: Array, row: Array, col: Array,
         s = s - jnp.int16(1)
 
         last = s == 0
-        was_occupied = b[r, c] > jnp.int16(1)   # >1 because we just added 1
+        was_occupied = b[r, c] > jnp.int16(1)  # >1 because we just added 1
 
         opp_has_seeds = (r == 0) & (b[2, c] > 0)
         can_capture = allow_capture & opp_has_seeds & last & was_occupied
@@ -59,8 +67,13 @@ def sow(board: Array, seeds: Array, row: Array, col: Array,
         # Nyumba stop/continue applies only when the nyumba has the special
         # status: active AND contains >= 6 seeds (RULES §The Nyumba).
         is_nyumba = (
-            (r == 0) & (c == NYUMBA_COL) & last & was_occupied
-            & (~opp_has_seeds) & nyumba_active & (b[r, c] >= jnp.int16(6))
+            (r == 0)
+            & (c == NYUMBA_COL)
+            & last
+            & was_occupied
+            & (~opp_has_seeds)
+            & nyumba_active
+            & (b[r, c] >= jnp.int16(6))
         )
 
         # --- branch 1: capture ---
@@ -102,9 +115,7 @@ def sow(board: Array, seeds: Array, row: Array, col: Array,
                 ),
                 (b_, d_),
             )
-            new_done = (~can_capture) & (
-                (~was_occupied) | is_nyumba
-            )
+            new_done = (~can_capture) & ((~was_occupied) | is_nyumba)
             new_ny = is_nyumba
             return b2, s2, nr, nc, new_done, new_ny
 
@@ -124,13 +135,26 @@ def sow(board: Array, seeds: Array, row: Array, col: Array,
         # not a (legal) nyumba_pending stop.  If that happens at the nyumba hole,
         # we have just picked up its seeds — mark it emptied.
         did_continue_at_nyumba = (
-            last & was_occupied & (~is_nyumba) & (~can_capture)
-            & (r == 0) & (c == NYUMBA_COL)
+            last
+            & was_occupied
+            & (~is_nyumba)
+            & (~can_capture)
+            & (r == 0)
+            & (c == NYUMBA_COL)
         )
         new_ny_emp = ny_emp | did_continue_at_nyumba
 
-        return (b, s, nr.astype(jnp.int32), nc.astype(jnp.int32), d,
-                new_done, new_ny, new_ny_emp, it + 1)
+        return (
+            b,
+            s,
+            nr.astype(jnp.int32),
+            nc.astype(jnp.int32),
+            d,
+            new_done,
+            new_ny,
+            new_ny_emp,
+            it + 1,
+        )
 
     init_carry = (
         board,
@@ -148,9 +172,13 @@ def sow(board: Array, seeds: Array, row: Array, col: Array,
     return new_board, nyumba_pending, pending_dir.astype(jnp.int32), nyumba_emptied
 
 
-def simulate_sow_ends_in_capture(board: Array, row: Array, col: Array,
-                                  direction: Array,
-                                  nyumba_active: bool | Array = True) -> Array:
+def simulate_sow_ends_in_capture(
+    board: Array,
+    row: Array,
+    col: Array,
+    direction: Array,
+    nyumba_active: bool | Array = True,
+) -> Array:
     """Return True if sowing (row, col) in direction produces a capture.
 
     Used by legal_action_mask in mtaji to detect valid capture moves.
@@ -170,7 +198,12 @@ def simulate_sow_ends_in_capture(board: Array, row: Array, col: Array,
     eff_active = jnp.bool_(nyumba_active) & (~src_is_nyumba)
     nr, nc = next_pos(row, col, direction)
     after_board, _, _, _ = sow(
-        new_board, seeds, nr, nc, direction,
-        allow_capture=True, nyumba_active=eff_active,
+        new_board,
+        seeds,
+        nr,
+        nc,
+        direction,
+        allow_capture=True,
+        nyumba_active=eff_active,
     )
     return after_board[2].sum() < board[2].sum()
