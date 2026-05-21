@@ -224,7 +224,7 @@ else (takasa):
 ## File Layout
 
 ```
-kikande-2/
+pungupua/
   bao/
     __init__.py
     state.py      # GameState, starting position constants
