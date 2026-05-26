@@ -8,10 +8,14 @@ Override any config field via CLI:
 """
 
 import datetime
+import glob
 import os
 import pickle
 import time
+from functools import partial
 from typing import NamedTuple
+
+import numpy as np
 
 import haiku as hk
 import jax
@@ -47,7 +51,7 @@ def forward_fn(x, is_eval: bool = False):
         num_channels=config.num_channels,
         num_blocks=config.num_blocks,
     )
-    return net(x, is_training=not is_eval)
+    return net(x, is_training=not is_eval, test_local_stats=False)
 
 
 forward = hk.without_apply_rng(hk.transform_with_state(forward_fn))
@@ -99,7 +103,7 @@ class SelfplayOutput(NamedTuple):
     discount: jnp.ndarray
 
 
-@jax.jit
+@jax.pmap
 def selfplay(model, rng_key: jnp.ndarray) -> SelfplayOutput:
     model_params, model_state = model
     batch_size = config.selfplay_batch_size
@@ -156,7 +160,7 @@ class Sample(NamedTuple):
     mask: jnp.ndarray
 
 
-@jax.jit
+@jax.pmap
 def compute_loss_input(data: SelfplayOutput) -> Sample:
     batch_size = config.selfplay_batch_size
 
@@ -194,7 +198,7 @@ def loss_fn(model_params, model_state, samples: Sample):
     return policy_loss + value_loss, (model_state, policy_loss, value_loss)
 
 
-@jax.jit
+@partial(jax.pmap, axis_name="i")
 def train_step(model, opt_state, batch: Sample):
     model_params, model_state = model
     grads, (model_state, policy_loss, value_loss) = jax.grad(loss_fn, has_aux=True)(
@@ -210,10 +214,10 @@ def train_step(model, opt_state, batch: Sample):
 # ---------------------------------------------------------------------------
 
 
-@jax.jit
-def evaluate(rng_key: jnp.ndarray, model) -> jnp.ndarray:
+@jax.pmap
+def evaluate(rng_key: jnp.ndarray, model) -> tuple[jnp.ndarray, jnp.ndarray]:
     model_params, model_state = model
-    batch_size = config.selfplay_batch_size
+    batch_size = 1024
     my_player = 0
 
     rng_key, sub_key = jax.random.split(rng_key)
@@ -242,11 +246,13 @@ def evaluate(rng_key: jnp.ndarray, model) -> jnp.ndarray:
         state = jax.vmap(env.step)(state, action)
         # Only credit rewards from games that weren't already finished
         R = R + state.rewards[:, my_player] * (~already_done).astype(jnp.float32)
-        return (state, R), None
+        return (state, R), (logits, state.terminated)
 
     key_seq = jax.random.split(rng_key, config.max_num_steps)
-    (_, R), _ = jax.lax.scan(step_fn, (state, jnp.zeros(batch_size)), key_seq)
-    return R
+    (_, R), (all_logits, all_terminated) = jax.lax.scan(
+        step_fn, (state, jnp.zeros(batch_size)), key_seq
+    )
+    return R, all_logits[:10], all_terminated
 
 
 # ---------------------------------------------------------------------------
@@ -258,35 +264,98 @@ if __name__ == "__main__":
         import wandb
         wandb.init(project="bao-az", config=config.model_dump())
 
-    # --- init model ---
-    dummy_state = jax.vmap(env.init)(jax.random.split(jax.random.PRNGKey(0), 2))
-    model = forward.init(jax.random.PRNGKey(0), dummy_state.observation)  # (params, net_state)
-    model_params, model_state = model
-    opt_state = optimizer.init(model_params)
+    # --- init or resume model ---
+    if config.resume_from:
+        ckpt_files = sorted(glob.glob(os.path.join(config.resume_from, "*.ckpt")))
+        if not ckpt_files:
+            raise FileNotFoundError(f"No checkpoints found in {config.resume_from}")
+        latest = ckpt_files[-1]
+        print(f"Resuming from {latest}")
+        with open(latest, "rb") as f:
+            ckpt = pickle.load(f)
+        model = ckpt["model"]
+        opt_state = ckpt["opt_state"]
+        rng_key = ckpt["rng_key"]
+        iteration = ckpt["iteration"]
+        frames = ckpt["frames"]
+        hours = ckpt["hours"]
+        ckpt_dir = config.resume_from
+    else:
+        dummy_state = jax.vmap(env.init)(jax.random.split(jax.random.PRNGKey(0), 2))
+        model = forward.init(jax.random.PRNGKey(0), dummy_state.observation)  # (params, net_state)
+        model_params, model_state = model
+        opt_state = optimizer.init(model_params)
+        now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
+        ckpt_dir = os.path.join("checkpoints", f"bao_{now}")
+        rng_key = jax.random.PRNGKey(config.seed)
+        iteration = 0
+        frames = 0
+        hours = 0.0
 
-    # --- checkpoint dir ---
-    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
-    ckpt_dir = os.path.join("checkpoints", f"bao_{now}")
     os.makedirs(ckpt_dir, exist_ok=True)
-
-    rng_key = jax.random.PRNGKey(config.seed)
-    iteration = 0
-    frames = 0
-    hours = 0.0
+    n_devices = jax.local_device_count()
     log: dict = {"iteration": iteration, "hours": hours, "frames": frames}
 
     while True:
         if iteration % config.eval_interval == 0:
             rng_key, subkey = jax.random.split(rng_key)
-            R = evaluate(subkey, model)
+            eval_keys = jax.random.split(subkey, n_devices)
+            rep_model = jax.tree_util.tree_map(lambda x: jnp.stack([x] * n_devices), model)
+            R, eval_logits, eval_terminated = evaluate(eval_keys, rep_model)
+            # Merge device and batch dims back into flat batch
+            # (n_devices, batch) → (n_devices*batch,)
+            R = R.reshape(-1)
+            # (n_devices, 10, batch, actions) → (10, n_devices*batch, actions)
+            eval_logits = eval_logits.transpose(1, 0, 2, 3).reshape(10, -1, eval_logits.shape[-1])
+            # (n_devices, steps, batch) → (steps, n_devices*batch)
+            eval_terminated = eval_terminated.transpose(1, 0, 2).reshape(config.max_num_steps, -1)
+            eval_probs_np = jax.device_get(jax.nn.softmax(eval_logits, axis=-1))
+            eval_terminated_np = jax.device_get(eval_terminated)
+            first_term = np.argmax(eval_terminated_np, axis=0)
+            ever_term = eval_terminated_np.any(axis=0)
+            eval_game_lengths = np.where(ever_term, first_term + 1, config.max_num_steps)
             log.update(
                 {
                     "eval/vs_random/avg_R": R.mean().item(),
                     "eval/vs_random/win_rate": ((R > 0).sum() / R.size).item(),
                     "eval/vs_random/draw_rate": ((R == 0).sum() / R.size).item(),
                     "eval/vs_random/lose_rate": ((R < 0).sum() / R.size).item(),
+                    "eval/game_length/avg": float(eval_game_lengths.mean()),
+                    "eval/game_length/min": int(eval_game_lengths.min()),
+                    "eval/game_length/max": int(eval_game_lengths.max()),
                 }
             )
+            if config.use_wandb:
+                import wandb
+                mean_probs = eval_probs_np[0].mean(axis=0)
+                table = wandb.Table(
+                    data=[[i, float(p)] for i, p in enumerate(mean_probs)],
+                    columns=["move_index", "probability"],
+                )
+                log["eval/probs/pos_0"] = wandb.plot.bar(
+                    table, "move_index", "probability", title="Eval probs at position 0"
+                )
+
+                R_np = jax.device_get(R)
+                win_lengths = eval_game_lengths[R_np > 0]
+                loss_lengths = eval_game_lengths[R_np < 0]
+                max_len = config.max_num_steps
+                win_counts = np.bincount(win_lengths, minlength=max_len + 1)
+                loss_counts = np.bincount(loss_lengths, minlength=max_len + 1)
+                win_table = wandb.Table(
+                    data=[[int(l), int(win_counts[l])] for l in range(max_len + 1)],
+                    columns=["move_count", "wins"],
+                )
+                loss_table = wandb.Table(
+                    data=[[int(l), int(loss_counts[l])] for l in range(max_len + 1)],
+                    columns=["move_count", "losses"],
+                )
+                log["eval/wins_per_move_count"] = wandb.plot.bar(
+                    win_table, "move_count", "wins", title="Wins per move count"
+                )
+                log["eval/losses_per_move_count"] = wandb.plot.bar(
+                    loss_table, "move_count", "losses", title="Losses per move count"
+                )
 
             model_params, model_state = model
             with open(os.path.join(ckpt_dir, f"{iteration:06d}.ckpt"), "wb") as f:
@@ -317,13 +386,23 @@ if __name__ == "__main__":
 
         # --- self-play ---
         rng_key, subkey = jax.random.split(rng_key)
-        data: SelfplayOutput = selfplay(model, subkey)
+        selfplay_keys = jax.random.split(subkey, n_devices)
+        rep_model = jax.tree_util.tree_map(lambda x: jnp.stack([x] * n_devices), model)
+        data: SelfplayOutput = selfplay(rep_model, selfplay_keys)
         samples: Sample = compute_loss_input(data)
 
-        # Flatten (max_num_steps, batch) -> N, shuffle, minibatch
+        # Game length stats — pmap adds leading device dim: (n_devices, max_num_steps, batch)
+        # Merge device+batch → (max_num_steps, n_devices*batch)
+        terminated_np = jax.device_get(data.terminated)
+        terminated_np = terminated_np.transpose(1, 0, 2).reshape(config.max_num_steps, -1)
+        first_term = np.argmax(terminated_np, axis=0)
+        ever_term = terminated_np.any(axis=0)
+        game_lengths = np.where(ever_term, first_term + 1, config.max_num_steps)
+
+        # Flatten (n_devices, max_num_steps, batch, ...) -> N, shuffle, minibatch
         samples = jax.device_get(samples)
-        frames += samples.obs.shape[0] * samples.obs.shape[1]
-        samples = jax.tree_util.tree_map(lambda x: x.reshape((-1, *x.shape[2:])), samples)
+        frames += samples.obs.shape[0] * samples.obs.shape[1] * samples.obs.shape[2]
+        samples = jax.tree_util.tree_map(lambda x: x.reshape((-1, *x.shape[3:])), samples)
 
         rng_key, subkey = jax.random.split(rng_key)
         ixs = jax.random.permutation(subkey, jnp.arange(samples.obs.shape[0]))
@@ -344,15 +423,27 @@ if __name__ == "__main__":
             )
 
         # --- training ---
+        per_device_batch = config.training_batch_size // n_devices
+        rep_model = jax.tree_util.tree_map(lambda x: jnp.stack([x] * n_devices), model)
+        rep_opt_state = jax.tree_util.tree_map(lambda x: jnp.stack([x] * n_devices), opt_state)
         policy_losses, value_losses = [], []
         for i in range(num_updates):
             if num_updates == 1:
-                batch = minibatches
+                batch = jax.tree_util.tree_map(
+                    lambda x: x.reshape((n_devices, x.shape[0] // n_devices, *x.shape[1:])),
+                    minibatches,
+                )
             else:
-                batch: Sample = jax.tree_util.tree_map(lambda x: x[i], minibatches)
-            model, opt_state, pl, vl = train_step(model, opt_state, batch)
-            policy_losses.append(pl.item())
-            value_losses.append(vl.item())
+                batch: Sample = jax.tree_util.tree_map(
+                    lambda x: x[i].reshape((n_devices, per_device_batch, *x.shape[2:])),
+                    minibatches,
+                )
+            rep_model, rep_opt_state, pl, vl = train_step(rep_model, rep_opt_state, batch)
+            policy_losses.append(pl.mean().item())
+            value_losses.append(vl.mean().item())
+        # Unreplicate: all devices hold the same parameters so take the first
+        model = jax.tree_util.tree_map(lambda x: x[0], rep_model)
+        opt_state = jax.tree_util.tree_map(lambda x: x[0], rep_opt_state)
 
         et = time.time()
         hours += (et - st) / 3600
@@ -360,6 +451,9 @@ if __name__ == "__main__":
             {
                 "train/policy_loss": sum(policy_losses) / len(policy_losses),
                 "train/value_loss": sum(value_losses) / len(value_losses),
+                "train/game_length/avg": float(game_lengths.mean()),
+                "train/game_length/min": int(game_lengths.min()),
+                "train/game_length/max": int(game_lengths.max()),
                 "hours": hours,
                 "frames": frames,
             }
