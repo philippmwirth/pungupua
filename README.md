@@ -2,6 +2,10 @@
 
 ![Logo](assets/pungupua_logo.jpeg)
 
+## Overview
+
+Pungupua (Swahili: *spotted eagle ray*) is an AlphaZero implementation for [Bao la Kiswahili](http://www.gamecabinet.com/rules/Bao.html), a two-player mancala variant from East Africa. A ResNet-based policy/value network is trained from scratch via self-play and Monte Carlo Tree Search (Gumbel MuZero policy), with no human game data. The entire pipeline — environment, search, and training — runs in JAX, making it easy to scale from a laptop to multi-device hardware.
+
 ## Papers
 
 | Paper | Authors | Year | Relevance |
