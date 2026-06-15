@@ -27,7 +27,7 @@ class State(core.State):
     terminated: Array = jnp.bool_(False)
     truncated: Array = jnp.bool_(False)  # bao has no time limit
     legal_action_mask: Array = INIT_LEGAL_ACTION_MASK  # (34,) bool
-    observation: Array = jnp.zeros((4, 8, 67), jnp.float32)
+    observation: Array = jnp.zeros((4, 8, 73), jnp.float32)
     _step_count: Array = jnp.int32(0)
     # Permutation mapping pgx player id -> internal player id, randomized
     # uniformly per episode in `Bao._init`.

@@ -59,7 +59,7 @@ def test_state_defaults_have_correct_shapes_and_dtypes():
     assert s.truncated.shape == () and s.truncated.dtype == jnp.bool_
     assert s.legal_action_mask.shape == (NUM_ACTIONS,)
     assert s.legal_action_mask.dtype == jnp.bool_
-    assert s.observation.shape == (4, 8, 67)
+    assert s.observation.shape == (4, 8, 73)
     assert s.observation.dtype == jnp.float32
     assert s._player_order.shape == (2,) and s._player_order.dtype == jnp.int32
     assert isinstance(s._x, GameState)
@@ -109,7 +109,7 @@ def test_init_returns_consistent_state():
     assert jnp.array_equal(state.legal_action_mask, g.legal_action_mask(state._x))
 
     # Observation shape comes from pgx's init wrapper (fills via _observe).
-    assert state.observation.shape == (4, 8, 67)
+    assert state.observation.shape == (4, 8, 73)
     assert state.observation.dtype == jnp.float32
 
 
@@ -337,7 +337,7 @@ def test_vmap_init_produces_batched_state():
     states = jax.vmap(env.init)(keys)
     assert states.current_player.shape == (16,)
     assert states._player_order.shape == (16, 2)
-    assert states.observation.shape == (16, 4, 8, 67)
+    assert states.observation.shape == (16, 4, 8, 73)
     assert states.legal_action_mask.shape == (16, NUM_ACTIONS)
     # All lanes start non-terminal.
     assert not bool(states.terminated.any())

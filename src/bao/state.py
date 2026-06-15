@@ -24,6 +24,10 @@ class GameState(NamedTuple):
     nyumba_pending: Array = jnp.bool_(False)
     # Direction that was active when nyumba_pending was set (0=left, 1=right)
     pending_direction: Array = jnp.int32(1)
+    # Whether captures are allowed in the nyumba continuation (False when the
+    # pending state arose from a takasa move — captures must remain forbidden
+    # for the entire turn).
+    pending_allow_capture: Array = jnp.bool_(True)
 
 
 # Starting board from current player's perspective

@@ -111,7 +111,7 @@ def test_no_singletons_sowed_in_mtaji():
 def test_observe_shape():
     s = g.init()
     obs = g.observe(s)
-    assert obs.shape == (4, 8, 67)
+    assert obs.shape == (4, 8, 73)
     assert obs.dtype == jnp.float32
 
 
