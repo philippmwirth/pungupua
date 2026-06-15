@@ -123,7 +123,7 @@ def selfplay(model, rng_key: jnp.ndarray) -> SelfplayOutput:
     batch_size = config.selfplay_batch_size
 
     def step_fn(state, key):
-        key1, key2 = jax.random.split(key)
+        key1, key2, key3 = jax.random.split(key, 3)
         observation = state.observation
 
         (logits, value), _ = forward.apply(
@@ -141,10 +141,32 @@ def selfplay(model, rng_key: jnp.ndarray) -> SelfplayOutput:
             qtransform=mctx.qtransform_completed_by_mix_value,
             gumbel_scale=1.0,
         )
+
+        # Exploration (AlphaGo Zero / Gumbel MuZero style): during the first
+        # `num_sampling_moves` moves of each game, sample the played action
+        # proportionally to the MCTS visit counts. Afterwards, play the
+        # deterministic action proposed by the search. The policy training
+        # target (`action_weights`) is unaffected by this choice.
+        #
+        # Note: `_step_count` counts environment steps, not game plies. A Bao
+        # turn can span multiple steps (the nyumba_pending stop/continue
+        # decision keeps the same player to move), so this slightly over-counts
+        # plies in those cases. This matches the paper's intent closely and is
+        # the standard pgx proxy; counting true plies would require tracking
+        # player changes.
+        visit_counts = policy_output.search_tree.summary().visit_counts
+        # `categorical` samples action a with probability proportional to
+        # exp(logits[a]); passing log(visit_counts) makes that probability
+        # proportional to the visit count itself. Unvisited and illegal actions
+        # have 0 visits, so log(0) = -inf gives them exactly zero probability.
+        sampled_action = jax.random.categorical(key3, jnp.log(visit_counts))
+        is_sampling_move = state._step_count < config.num_sampling_moves
+        action = jnp.where(is_sampling_move, sampled_action, policy_output.action)
+
         actor = state.current_player
         keys = jax.random.split(key2, batch_size)
         state = jax.vmap(auto_reset(env.step, env.init))(
-            state, policy_output.action, keys
+            state, action, keys
         )
         player_changed = state.current_player != actor
         discount = jnp.where(

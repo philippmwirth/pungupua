@@ -15,6 +15,10 @@ class Config(BaseModel):
     selfplay_batch_size: int = 32
     num_simulations: int = 32
     max_num_steps: int = 96
+    # Number of opening moves per game during which the played action is sampled
+    # proportionally to MCTS visit counts (exploration). After this many moves
+    # the agent plays the deterministic action proposed by the search.
+    num_sampling_moves: int = 30
 
     # training
     training_batch_size: int = 1024
