@@ -10,3 +10,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Generated evaluation reports
+opening_analysis.md
+puzzles_report.md
+tournament_report.md
