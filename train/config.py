@@ -9,16 +9,18 @@ class Config(BaseModel):
 
     # network
     num_channels: int = 64
-    num_blocks: int = 4
+    num_blocks: int = 2
 
     # self-play
     selfplay_batch_size: int = 32
-    num_simulations: int = 16
-    max_num_steps: int = 200
+    num_simulations: int = 32
+    max_num_steps: int = 96
 
     # training
-    training_batch_size: int = 32
+    training_batch_size: int = 1024
     learning_rate: float = 1e-3
+    learning_rate_min: float = 1e-5
+    learning_rate_warmup_steps: int = 100
 
     # eval
     eval_interval: int = 10
