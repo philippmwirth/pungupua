@@ -190,34 +190,14 @@ def deactivate_nyumba_if_sowed(
 # ---------------------------------------------------------------------------
 
 
-def legal_action_mask(
-    board: Array,
-    stock: Array,
-    stage: Array,
-    nyumba_active: Array,
-    nyumba_pending: Array,
-    opp_nyumba_active: Array,
-) -> Array:
-    """Return (NUM_ACTIONS,) bool mask of legal actions."""
-
-    # --- nyumba decision ---
-    def nyumba_mask(_):
-        m = jnp.zeros(NUM_ACTIONS, jnp.bool_)
-        m = m.at[NYUMBA_STOP].set(True)
-        m = m.at[NYUMBA_CONTINUE].set(True)
-        return m
-
-    def normal_mask(_):
-        return jax.lax.cond(stage == 0, _namua_mask, _mtaji_mask, None)
-
-    return jax.lax.cond(nyumba_pending, nyumba_mask, normal_mask, None)
-
-
-def _capture_possible_namua(board: Array, stock: Array) -> Array:
+def capture_possible_namua(board: Array, stock: Array) -> Array:
     """True if any front-row col has seeds on both sides and stock > 0."""
     has_stock = stock[0] > 0
     both = (board[0] > 0) & (board[2] > 0)
     return has_stock & both.any()
+
+
+_capture_possible_namua = capture_possible_namua  # internal alias
 
 
 def _namua_mask(board_stock_etc) -> Array:
@@ -320,23 +300,31 @@ def _mtaji_mask(board_stock_etc) -> Array:
         return (cap_mask32 & dok).astype(jnp.bool_)
 
     def takasa_actions(_):
-        # Front row, non-singleton, not mtaji-moja protected col.
-        # No kichwa/kimbi direction constraint here — that rule applies only
-        # when capturing FROM a kichwa/kimbi (RULES §Kichwa and Kimbi).
-        def eligible(action):
+        # Front row preferred; back row is a fallback when no front-row
+        # non-singletons exist (RULES §Takasa in Mtaji).
+        # No kichwa/kimbi direction constraint — that applies only when
+        # capturing FROM a kichwa/kimbi (RULES §Kichwa and Kimbi).
+        def front_eligible(action):
             row = jnp.where(action < 16, jnp.int32(0), jnp.int32(1))
             rem = jnp.where(action < 16, action, action - jnp.int32(16))
             col = rem // 2
             singleton = board[row, col] <= 1
             is_front = row == 0
-            only_opp_col = jnp.argmax(
-                paired_nonsing
-            )  # col of sole paired non-singleton hole
+            only_opp_col = jnp.argmax(paired_nonsing)
             is_moja_source = mtaji_moja_active & is_front & (col == only_opp_col)
             return is_front & (~singleton) & (~is_moja_source)
 
+        def back_eligible(action):
+            row = jnp.where(action < 16, jnp.int32(0), jnp.int32(1))
+            rem = jnp.where(action < 16, action, action - jnp.int32(16))
+            col = rem // 2
+            singleton = board[row, col] <= 1
+            return (row == 1) & (~singleton)
+
         actions = jnp.arange(32, dtype=jnp.int32)
-        return jax.vmap(eligible)(actions).astype(jnp.bool_)
+        front_mask = jax.vmap(front_eligible)(actions).astype(jnp.bool_)
+        back_mask = jax.vmap(back_eligible)(actions).astype(jnp.bool_)
+        return jnp.where(front_mask.any(), front_mask, back_mask)
 
     mask32 = jax.lax.cond(any_capture, capture_actions, takasa_actions, None)
     mask = jnp.zeros(NUM_ACTIONS, jnp.bool_)

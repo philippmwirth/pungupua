@@ -457,9 +457,142 @@ def test_mtaji_singleton_not_legal_as_takasa_source():
     assert mask[6] or mask[7], "col3 should be legal (non-singleton, no moja)"
 
 
+def test_mtaji_takasa_back_row_fallback_when_no_front_row_moves():
+    """When no captures exist and the front row has only singletons/empty holes,
+    back-row non-singleton holes must be offered as takasa fallback.
+
+    Front row: singletons only (col1=1, col3=1).
+    Back row: col2=3, col4=5.
+    Opponent front: seeds at cols not opposite any front-row non-singleton → no captures.
+    Expected: B3L/B3R (actions 20/21) and B5L/B5R (actions 24/25) are legal;
+    no front-row actions are legal.
+    """
+    s = st(
+        [
+            [0, 1, 0, 1, 0, 0, 0, 0],  # cur front: only singletons
+            [0, 0, 3, 0, 5, 0, 0, 0],  # cur back: non-singletons at col2, col4
+            [0, 0, 0, 0, 0, 2, 3, 0],  # opp front: no seeds opposite cur non-empty front cols
+            Z8,
+        ],
+    )
+    mask = g.legal_action_mask(s)
+    legal = set(int(a) for a in jnp.where(mask)[0].tolist())
+
+    # Back-row non-singletons must be offered
+    assert 20 in legal, "B3L (action 20) must be legal as back-row takasa fallback"
+    assert 21 in legal, "B3R (action 21) must be legal as back-row takasa fallback"
+    assert 24 in legal, "B5L (action 24) must be legal as back-row takasa fallback"
+    assert 25 in legal, "B5R (action 25) must be legal as back-row takasa fallback"
+
+    # No front-row actions should be legal (all singletons or empty)
+    front_legal = [a for a in legal if a < 16]
+    assert not front_legal, f"no front-row actions should be legal, got {front_legal}"
+
+
+def test_mtaji_takasa_front_row_preferred_over_back_row():
+    """When no captures exist but both front-row and back-row non-singletons are
+    available, only front-row moves should be offered (front row takes priority).
+
+    Front row: col2=3.  Back row: col4=5.  No captures reachable.
+    Expected: A3L/A3R legal; B5L/B5R not legal.
+    """
+    s = st(
+        [
+            [0, 0, 3, 0, 0, 0, 0, 0],  # cur front: col2=3
+            [0, 0, 0, 0, 5, 0, 0, 0],  # cur back: col4=5
+            Z8,                          # opp front: empty → no captures
+            Z8,
+        ],
+    )
+    mask = g.legal_action_mask(s)
+    legal = set(int(a) for a in jnp.where(mask)[0].tolist())
+
+    assert 4 in legal or 5 in legal, "A3L or A3R must be legal (front-row takasa)"
+    assert 24 not in legal, "B5L must not be legal when front-row takasa is available"
+    assert 25 not in legal, "B5R must not be legal when front-row takasa is available"
+
+
 # ---------------------------------------------------------------------------
 # Seed conservation for the nyumba 2-seed special move
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Mid-chain direction flip at kichwa / kimbi
+# ---------------------------------------------------------------------------
+
+
+def test_mid_chain_capture_at_right_kichwa_flips_direction_to_left():
+    """A mid-turn chain capture landing at col 7 (right kichwa) must force
+    re-entry from col 7 going LEFT, not from col 0 going right.
+
+    Setup (mtaji):
+      board[0] = [0, 0, 0, 0, 0, 2, 0, 1]   (col5=2, col7=1)
+      board[2] = [2, 0, 0, 0, 0, 0, 0, 3]   (col0=2 keeps opp front non-empty; col7=3)
+
+    Action A6R (col5 right = action 11):
+      - sow col5 (2 seeds) rightward → lands at col6 (1) then col7 (last, occupied,
+        opp col7=3) → CAPTURE at right kichwa → direction flips to LEFT.
+      - 3 captured seeds re-enter from col7 going left → land at col7, col6, col5.
+
+    Expected final player front (pre-flip): [0,0,0,0,0,1,2,3]
+    After board flip, new board[2] = old player front reversed = [3,2,1,0,0,0,0,0].
+
+    With the old (buggy) code the captured seeds would have entered from col0 going
+    right, giving [1,1,1,0,0,0,1,2] (pre-flip) and new board[2]=[2,1,0,0,0,1,1,1].
+    """
+    s = st(
+        [
+            [0, 0, 0, 0, 0, 2, 0, 1],  # cur front: col5=2, col7=1
+            Z8,
+            [2, 0, 0, 0, 0, 0, 0, 3],  # opp front: col0=2, col7=3
+            Z8,
+        ],
+    )
+    s2 = g.step(s, jnp.int32(11))  # col5 right
+    assert int(s2.winner) < 0, "game should still be ongoing"
+    expected = jnp.array([3, 2, 1, 0, 0, 0, 0, 0], jnp.int16)
+    assert jnp.array_equal(s2.board[2], expected), (
+        f"after direction flip, new board[2] should be {expected.tolist()}, "
+        f"got {s2.board[2].tolist()}"
+    )
+
+
+def test_mid_chain_capture_at_left_kimbi_flips_direction_to_right():
+    """A mid-turn chain capture landing at col 1 (left kimbi) must force
+    re-entry from col 0 going RIGHT, not from col 7 going left.
+
+    Setup (mtaji):
+      board[0] = [0, 1, 0, 2, 0, 0, 0, 0]   (col1=1, col3=2)
+      board[2] = [2, 3, 0, 0, 0, 0, 0, 0]   (col0=2; col1=3)
+
+    Action A4L (col3 left = action 6):
+      - sow col3 (2 seeds) leftward → col2 (1), col1 (last, occupied, opp col1=3)
+        → CAPTURE at left kimbi → direction flips to RIGHT.
+      - 3 captured seeds enter from col0 going right → col0, col1, col2
+        (col2 occupied → do_continue → col3, col4 → empty → done).
+
+    Expected final player front (pre-flip): [1,3,0,1,1,0,0,0]
+    After flip, new board[2] = old player front reversed = [0,0,0,1,1,0,3,1].
+
+    With the old (buggy) code the captured seeds would have entered from col7
+    going left, giving [0,2,1,0,0,1,1,1] (pre-flip) and new board[2]=[1,1,1,0,0,1,2,0].
+    """
+    s = st(
+        [
+            [0, 1, 0, 2, 0, 0, 0, 0],  # cur front: col1=1, col3=2
+            Z8,
+            [2, 3, 0, 0, 0, 0, 0, 0],  # opp front: col0=2, col1=3
+            Z8,
+        ],
+    )
+    s2 = g.step(s, jnp.int32(6))  # col3 left
+    assert int(s2.winner) < 0, "game should still be ongoing"
+    expected = jnp.array([0, 0, 0, 1, 1, 0, 3, 1], jnp.int16)
+    assert jnp.array_equal(s2.board[2], expected), (
+        f"after direction flip, new board[2] should be {expected.tolist()}, "
+        f"got {s2.board[2].tolist()}"
+    )
 
 
 def test_seed_conservation_nyumba_two_seed_move():

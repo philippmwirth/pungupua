@@ -12,6 +12,7 @@ from .rules import (
     mtaji_step,
     compute_legal_action_mask,
     deactivate_nyumba_if_sowed,
+    capture_possible_namua,
 )
 from .sowing import sow
 from .state import (
@@ -64,11 +65,19 @@ class Game:
                     nr,
                     nc,
                     d,
-                    allow_capture=True,
+                    allow_capture=s.pending_allow_capture,
                     nyumba_active=jnp.bool_(False),
                 )
                 na = s.nyumba_active.at[0].set(False)  # nyumba has been sowed out
                 na = deactivate_nyumba_if_sowed(b, na, s.board)
+
+                # Check win condition on the pre-flip board (b[2] = opponent's
+                # front row from current player's perspective).  Must happen
+                # before the selective flip below, which would swap the rows.
+                opp_front_empty = (b[2] == 0).all()
+                winner = jax.lax.select(
+                    opp_front_empty, s.current_player, jnp.int32(-1)
+                )
 
                 b_flip2, na_flip2, stk_flip2 = flip_board(b, na, s.stock)
                 b = jax.lax.select(ny_pend, b, b_flip2)
@@ -84,12 +93,8 @@ class Game:
                     current_player=new_cp,
                     nyumba_pending=ny_pend,
                     pending_direction=pend_dir,
+                    winner=winner,
                 )
-                opp_front_empty = (b[2] == 0).all()
-                winner = jax.lax.select(
-                    opp_front_empty, s.current_player, jnp.int32(-1)
-                )
-                new_state = new_state._replace(winner=winner)
                 return _check_no_moves(new_state, s.current_player)
 
             return jax.lax.cond(action == NYUMBA_STOP, stop, cont, None)
@@ -107,16 +112,19 @@ class Game:
                 new_stage = jnp.where(
                     (stk[0] == 0) & (st.stock[1] == 0), jnp.int32(1), st.stage
                 )
-                return b, na, stk, ny_pend, pend_dir, new_stage
+                # Captures are allowed in any nyumba continuation only when
+                # this move was itself a capture (not a takasa).
+                pend_allow_cap = capture_possible_namua(st.board, st.stock)
+                return b, na, stk, ny_pend, pend_dir, new_stage, pend_allow_cap
 
             def mtaji(st: GameState):
                 b, na, ny_pend, pend_dir, ny_emp = mtaji_step(
                     st.board, st.nyumba_active, row, col, direction
                 )
                 na = deactivate_nyumba_if_sowed(b, na, prev_board, ny_emp)
-                return b, na, st.stock, ny_pend, pend_dir, st.stage
+                return b, na, st.stock, ny_pend, pend_dir, st.stage, jnp.bool_(True)
 
-            b, na, stk, ny_pend, pend_dir, new_stage = jax.lax.cond(
+            b, na, stk, ny_pend, pend_dir, new_stage, pend_allow_cap = jax.lax.cond(
                 s.stage == 0, namua, mtaji, s
             )
 
@@ -140,6 +148,7 @@ class Game:
                 nyumba_active=na_out,
                 nyumba_pending=ny_pend,
                 pending_direction=pend_dir,
+                pending_allow_capture=pend_allow_cap,
             )
             return _check_no_moves(new_state, s.current_player)
 
@@ -154,7 +163,15 @@ class Game:
         if color is None:
             color = state.current_player
         return make_observation(
-            state.board, state.nyumba_active, color, state.current_player
+            state.board,
+            state.nyumba_active,
+            color,
+            state.current_player,
+            state.stock,
+            state.stage,
+            state.nyumba_pending,
+            state.pending_direction,
+            state.pending_allow_capture,
         )
 
     def legal_action_mask(self, state: GameState) -> Array:

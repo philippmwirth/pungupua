@@ -125,7 +125,7 @@ If you capture from a **kichwa or kimbi hole**, you must sow the captured seeds 
 | Hole 7 (right kimbi) | Right |
 | Hole 8 (right kichwa) | Right |
 
-Once you have started sowing in a direction during a turn, you must **continue in that same direction** for subsequent sowing in that turn.
+You must generally **continue in the same direction** for subsequent sowing in that turn. The **only exception** is a mid-turn chain capture that lands on a kichwa or kimbi hole — in that case the re-entry kichwa is forced to the nearest end, which may flip the direction. This is the only way to change sowing direction within a single move.
 
 ### Capturing with Captured Seeds
 
@@ -226,7 +226,7 @@ You can sow the 3-seed hole to the right (last seed lands opposite the 5 → cap
 
 ### Takasa in Mtaji
 
-If no capture is possible, play **takasa**: sow any non-singleton hole from your front row left or right. No captures occur during takasa.
+If no capture is possible, play **takasa**: sow any non-singleton hole from your front row left or right. No captures occur during takasa. If no non-singleton front-row hole exists, you may instead sow any non-singleton hole from your back row.
 
 **Mtaji moja** (last mtaji) rule: if your opponent has only **one** mtaji hole left, you may not sow that hole in a takasa situation — doing so would deprive them of their only target. You must sow a different hole.
 

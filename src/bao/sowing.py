@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from .board import next_pos, kichwa_col
+from .board import next_pos, kichwa_col, is_kichwa_or_kimbi, forced_direction
 from .state import NYUMBA_COL
 
 MAX_ITER = 256
@@ -77,13 +77,17 @@ def sow(
         )
 
         # --- branch 1: capture ---
+        # If the capture hole is a kichwa/kimbi, re-entry is forced to the
+        # nearest kichwa (which may flip the direction).  Otherwise the
+        # current direction is preserved.  This is the only way direction
+        # can change within a single move (confirmed by multiple rule sources).
         def do_capture(args):
             b_, d_ = args
             captured = b_[2, c].astype(jnp.int16)
             b_ = b_.at[2, c].set(jnp.int16(0))
-            # re-enter from appropriate kichwa
-            kc = kichwa_col(d_)
-            return b_, captured, jnp.int32(0), kc
+            new_d = jnp.where(is_kichwa_or_kimbi(c), forced_direction(c), d_)
+            kc = kichwa_col(new_d)
+            return b_, captured, jnp.int32(0), kc, new_d
 
         # --- branch 2: continue (pick up from current hole) ---
         def do_continue(args):
@@ -91,20 +95,20 @@ def sow(
             picked = b_[r, c].astype(jnp.int16)
             b_ = b_.at[r, c].set(jnp.int16(0))
             nr, nc = next_pos(r, c, d_)
-            return b_, picked, nr, nc
+            return b_, picked, nr, nc, d_
 
         # --- branch 3: done (empty hole or last seed with no action) ---
         def do_done(args):
             b_, d_ = args
             nr, nc = next_pos(r, c, d_)
-            return b_, jnp.int16(0), nr, nc
+            return b_, jnp.int16(0), nr, nc, d_
 
         # Decide what happens when we placed the last seed
         # Priority: capture > nyumba_pending > continue > done
         def on_last(args):
             b_, d_ = args
             # capture?
-            b2, s2, nr, nc = jax.lax.cond(
+            b2, s2, nr, nc, new_d = jax.lax.cond(
                 can_capture,
                 do_capture,
                 lambda a: jax.lax.cond(
@@ -117,14 +121,14 @@ def sow(
             )
             new_done = (~can_capture) & ((~was_occupied) | is_nyumba)
             new_ny = is_nyumba
-            return b2, s2, nr, nc, new_done, new_ny
+            return b2, s2, nr, nc, new_d, new_done, new_ny
 
         def on_not_last(args):
             b_, d_ = args
             nr, nc = next_pos(r, c, d_)
-            return b_, s, nr, nc, jnp.bool_(False), jnp.bool_(False)
+            return b_, s, nr, nc, d_, jnp.bool_(False), jnp.bool_(False)
 
-        b, s, nr, nc, new_done, new_ny = jax.lax.cond(
+        b, s, nr, nc, new_d, new_done, new_ny = jax.lax.cond(
             last,
             on_last,
             on_not_last,
@@ -149,7 +153,7 @@ def sow(
             s,
             nr.astype(jnp.int32),
             nc.astype(jnp.int32),
-            d,
+            new_d,
             new_done,
             new_ny,
             new_ny_emp,
