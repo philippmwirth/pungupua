@@ -25,8 +25,9 @@
    - [Capture](#capture)
    - [Takasa in Mtaji](#takasa-in-mtaji)
 5. [Summary of Key Rules](#summary-of-key-rules)
-6. [Notation](#notation)
-7. [Glossary](#glossary)
+6. [Differences from the Mancala World Ruleset](#differences-from-the-mancala-world-ruleset)
+7. [Notation](#notation)
+8. [Glossary](#glossary)
 
 ---
 
@@ -163,11 +164,21 @@ If you **cannot** begin a move with a capture (no occupied front-row hole has an
 3. Pick up all seeds from that hole and sow them left or right.
 4. **No captures are allowed** during a takasa move, even if the last seed lands opposite an occupied hole.
 
+> **You may not enter the seed into a functional nyumba on a takasa move** unless the nyumba is the only occupied hole in your front row. See [The Nyumba](#the-nyumba-house).
+
 ---
 
 ## The Nyumba (House)
 
-The **nyumba** is the fifth hole from the left on your front row (marked with a rectangle on the physical board). It has special rules as long as it contains **6 or more seeds**. Once the nyumba's seeds have been sown out, it becomes an ordinary hole.
+The **nyumba** is the fifth hole from the left on your front row (marked with a rectangle on the physical board). It has special rules as long as it contains **6 or more seeds** (a *functional* nyumba). Once the nyumba's seeds have been sown out, it becomes an ordinary hole.
+
+### You May Not Enter the Nyumba on a Takasa Move
+
+When you play a **takasa** (a move that does not begin with a capture), you may **not** place your stock seed into a functional nyumba — **unless the nyumba is the only occupied hole in your front row** (the case covered by [Takasa with Only the Nyumba Remaining](#takasa-with-only-the-nyumba-remaining)).
+
+This protects the nyumba from being voluntarily broken open: during the namua stage a full nyumba can only be unleashed by sowing landing in it during a **capturing** move, never by a player choosing to empty it with a takasa. Entering the nyumba **to make a capture** is always allowed.
+
+If the nyumba holds fewer than 6 seeds it is an ordinary hole, so this restriction no longer applies.
 
 ### Stopping Sowing at the Nyumba
 
@@ -229,6 +240,33 @@ You can sow the 3-seed hole to the right (last seed lands opposite the 5 → cap
 If no capture is possible, play **takasa**: sow any non-singleton hole from your front row left or right. No captures occur during takasa. If no non-singleton front-row hole exists, you may instead sow any non-singleton hole from your back row.
 
 **Mtaji moja** (last mtaji) rule: if your opponent has only **one** mtaji hole left, you may not sow that hole in a takasa situation — doing so would deprive them of their only target. You must sow a different hole.
+
+---
+
+## Differences from the Mancala World Ruleset
+
+This document is based on the original **Nierse / GameCabinet** article
+([source](http://www.gamecabinet.com/rules/Bao.html)). The
+[Mancala World (Ralf Gering) ruleset](https://mancala.fandom.com/wiki/Bao_la_Kiswahili)
+is another widely-cited write-up of championship Bao, and the two disagree (or
+differ in completeness) on the points below. The **GameCabinet (source)** column
+records what the original article says, **RULES.md** what this document now states,
+and the **Implemented?** column whether this engine encodes the rule.
+
+| # | Rule point | GameCabinet (source) | RULES.md (this document) | Mancala World (Fandom) | Implemented? |
+|---|---|---|---|---|---|
+| 1 | **Takasa entry into the nyumba** | Silent — no restriction stated; only the "Takasa with Only Your Nyumba Remaining" special rule is given. | Forbidden on a non-capturing move unless the nyumba is the only occupied front hole; capturing entry is always allowed. | Same as RULES.md, explicit: *"he is not permitted to put the seed into it, unless it is the only occupied hole in his front row."* | ✅ Yes — enforced in the namua legal-action mask (`_namua_mask`, `forbid_nyumba_takasa`). |
+| 2 | **Nyumba stop on a takasa lap (namua)** | Optional in all cases, conditioned on the opposing hole being empty: *"the player may end his turn if he wishes."* | Always optional ("may choose to end your turn"). | Mandatory: a takata lap ending in the nyumba ends the turn *"without delay"*; only a **capturing** lap offers the free choice (*safari*). | ⚠️ Partial — engine offers the optional stop/continue choice in both cases. |
+| 3 | **Nyumba stop in the mtaji stage** | Silent; mtaji "is not very different from the namua stage," implying the same optional stop. | "Same as namua" — implies the optional stop still applies. | The optional stop is namua-only; in mtaji the player **must** *safari* (continue) when a lap ends in the nyumba. | ⚠️ No — engine does not force continuation in mtaji. |
+| 4 | **16-seed capture cutoff (mtaji)** | Absent. | Absent. | *"If 16 or more seeds are sown in the first lap, nothing will be captured."* (mtaji only) | ❌ No. |
+| 5 | **Singleton sowing in takasa** | Namua takasa allows any hole with *"one or more seeds"*; only mtaji forbids starting on a singleton (no exception). | Singletons may never be sown — no exception. | Must sow a hole with ≥ 2 seeds *"unless all non-empty holes in the front row are singletons."* | ❌ No (the Fandom exception is not implemented; engine allows namua-takasa singletons, forbids them in mtaji). |
+| 6 | **"Front row may never be emptied" (mtaji)** | Absent. | Absent. | Front row may never be emptied, even temporarily; a sole kichwa with ≥ 2 seeds must be sown toward the centre. | ❌ No. |
+| 7 | **Takasia / mtaji-moja** | Has mtaji-moja only: *"the only mtaji left for your opponent ... may not be sown in a takasa situation."* | Simplified: you may not sow a hole that is the opponent's only mtaji. | Fuller *takasia* rule with the "reached from a nyumba" exception; a nyumba itself cannot be takasia'd, nor the only occupied / only multi-seed hole. | ⚠️ Partial — mtaji-moja source block only (`mtaji_moja_active`). |
+| 8 | **Capture-chaining as a global invariant** | Implicit: takasa allows no captures, and *"you always keep on sowing or capturing."* | Conveyed implicitly via the takasa "no captures allowed" rule. | Stated explicitly: *"If the first lap of a move doesn't capture, nothing will be captured in the full move."* | ✅ Equivalent — takasa moves carry `allow_capture=False` for the whole move. |
+
+> Difference **#1** is the only one whose behaviour was changed (to match Mancala
+> World, diverging from the silent GameCabinet source); the rest are documented
+> here for reference and remain as the original Nierse ruleset describes them.
 
 ---
 

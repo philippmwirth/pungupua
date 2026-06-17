@@ -214,10 +214,23 @@ def _namua_mask(board_stock_etc) -> Array:
         has_stock & nyumba_only & ~can_cap & (board[0, NYUMBA_COL] >= jnp.int16(6))
     )
 
+    # Difference #1 (Mancala World rule): on a non-capturing (takasa) move the
+    # seed may NOT be entered into a *functional* nyumba unless the nyumba is the
+    # only occupied front hole.  A nyumba is functional while it is still active
+    # and holds >= 6 seeds; below that it is an ordinary hole and may be entered.
+    nyumba_functional = nyumba_active[0] & (board[0, NYUMBA_COL] >= jnp.int16(6))
+
     # Build mask over front-row cols (actions 0-15)
     def col_mask(c):
         eligible_cap = has_stock & (board[0, c] > 0) & (board[2, c] > 0)
-        eligible_tak = has_stock & (board[0, c] > 0)
+        # Difference #1: forbid takasa entry into a functional nyumba unless it
+        # is the only occupied front hole.  When it IS the only hole, the >= 6
+        # case is served by nyumba_special (the 2-seed rule) and the < 6 case is
+        # an ordinary takasa, so no legal move is lost.
+        forbid_nyumba_takasa = (
+            (c == jnp.int32(NYUMBA_COL)) & nyumba_functional & (~nyumba_only)
+        )
+        eligible_tak = has_stock & (board[0, c] > 0) & (~forbid_nyumba_takasa)
         eligible_nyumba_sp = nyumba_special & (c == jnp.int32(NYUMBA_COL))
 
         # Direction is forced for kichwa/kimbi ONLY when capturing (RULES:

@@ -316,6 +316,74 @@ def test_namua_right_kichwa_forced_left_for_capture():
 
 
 # ---------------------------------------------------------------------------
+# Namua mask – Difference #1: takasa entry into the nyumba
+# ---------------------------------------------------------------------------
+
+
+def test_namua_takasa_into_functional_nyumba_blocked():
+    """Difference #1: on a non-capturing move the seed may not be entered into a
+    functional nyumba (>= 6 seeds, active) while another front hole is occupied.
+    """
+    # nyumba (col4) = 6 and active, plus col5 = 3.  No opp seeds -> takasa.
+    s = st(
+        [[0, 0, 0, 0, 6, 3, 0, 0], Z8, Z8, Z8],
+        stock=(1, 0), stage=0, na=(True, False),
+    )
+    mask = g.legal_action_mask(s)
+    legal = set(jnp.where(mask)[0].tolist())
+    assert 8 not in legal and 9 not in legal, (
+        "takasa entry into a functional nyumba must be blocked (cols 8/9)"
+    )
+    assert 10 in legal and 11 in legal, "other front holes stay legal for takasa"
+
+
+def test_namua_takasa_into_nyumba_allowed_when_only_hole():
+    """Difference #1 exception: a functional nyumba may be entered on a takasa
+    move when it is the only occupied front hole (the >= 6 special 2-seed rule).
+    """
+    s = st(
+        [[0, 0, 0, 0, 7, 0, 0, 0], Z8, Z8, Z8],
+        stock=(1, 0), stage=0, na=(True, False),
+    )
+    mask = g.legal_action_mask(s)
+    legal = set(jnp.where(mask)[0].tolist())
+    assert 8 in legal or 9 in legal, (
+        "nyumba must be playable when it is the only occupied front hole"
+    )
+
+
+def test_namua_takasa_into_nonfunctional_nyumba_allowed():
+    """A nyumba with < 6 seeds is an ordinary hole: takasa entry is allowed even
+    when other holes are occupied (Difference #1 only restricts functional ones).
+    """
+    s = st(
+        [[0, 0, 0, 0, 5, 3, 0, 0], Z8, Z8, Z8],
+        stock=(1, 0), stage=0, na=(True, False),
+    )
+    mask = g.legal_action_mask(s)
+    legal = set(jnp.where(mask)[0].tolist())
+    assert 8 in legal and 9 in legal, (
+        "takasa into a < 6 nyumba (ordinary hole) must be allowed"
+    )
+
+
+def test_namua_capture_into_functional_nyumba_still_allowed():
+    """Difference #1 restricts only non-capturing entry.  Entering the nyumba to
+    make a capture remains legal even with other holes occupied.
+    """
+    # nyumba (col4) = 6 active with an opposing hole -> capture available there.
+    s = st(
+        [[0, 0, 0, 0, 6, 3, 0, 0], Z8, [0, 0, 0, 0, 2, 0, 0, 0], Z8],
+        stock=(1, 0), stage=0, na=(True, False),
+    )
+    mask = g.legal_action_mask(s)
+    legal = set(jnp.where(mask)[0].tolist())
+    assert 8 in legal or 9 in legal, (
+        "capturing entry into the nyumba must remain legal"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Mtaji legal mask
 # ---------------------------------------------------------------------------
 

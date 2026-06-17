@@ -32,13 +32,17 @@ from bao import (
 
 
 def test_init_legal_action_mask_shape_and_contents():
-    """The precomputed init mask has bits set exactly at {8..13}: both
-    directions for the three occupied front holes (cols 4, 5, 6) in the
-    canonical opening (no capture is possible from the symmetric start)."""
+    """The precomputed init mask has bits set exactly at {10..13}: both
+    directions for the two 2-seed front holes (cols 5, 6) in the canonical
+    opening (no capture is possible from the symmetric start).
+
+    The nyumba (col 4) is occupied but holds 6 seeds, so it is a *functional*
+    nyumba; Difference #1 forbids entering it on a takasa move while other holes
+    are occupied, so its actions {8, 9} are absent at the opening."""
     assert INIT_LEGAL_ACTION_MASK.shape == (NUM_ACTIONS,)
     assert INIT_LEGAL_ACTION_MASK.dtype == jnp.bool_
     legal = set(jnp.where(INIT_LEGAL_ACTION_MASK)[0].tolist())
-    assert legal == {8, 9, 10, 11, 12, 13}, f"got {legal}"
+    assert legal == {10, 11, 12, 13}, f"got {legal}"
 
 
 def test_init_legal_action_mask_matches_game_init():
