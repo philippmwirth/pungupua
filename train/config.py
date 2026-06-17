@@ -22,6 +22,11 @@ class Config(BaseModel):
 
     # training
     training_batch_size: int = 1024
+    # FIFO replay buffer capacity, measured in positions (samples). Each
+    # iteration's self-play data is appended and the oldest positions are
+    # evicted once capacity is exceeded; training minibatches are drawn from the
+    # whole buffer rather than only the latest round.
+    replay_buffer_size: int = 100_000
     learning_rate: float = 1e-3
     learning_rate_min: float = 1e-5
     learning_rate_warmup_steps: int = 100

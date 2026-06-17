@@ -342,6 +342,10 @@ if __name__ == "__main__":
     os.makedirs(ckpt_dir, exist_ok=True)
     log: dict = {"iteration": iteration, "hours": hours, "frames": frames}
 
+    # FIFO replay buffer of flattened training positions. Kept in host memory
+    # only (not checkpointed), so it refills from scratch when resuming.
+    replay_buffer: Sample | None = None
+
     while True:
         if iteration % config.eval_interval == 0:
             rng_key, subkey = jax.random.split(rng_key)
@@ -458,30 +462,49 @@ if __name__ == "__main__":
         ever_term = terminated_np.any(axis=0)
         game_lengths = np.where(ever_term, first_term + 1, config.max_num_steps)
 
-        # Flatten (n_devices, max_num_steps, batch, ...) -> N, shuffle, minibatch
+        # Flatten (n_devices, max_num_steps, batch, ...) -> (N, ...)
         samples = jax.device_get(samples)
         frames += samples.obs.shape[0] * samples.obs.shape[1] * samples.obs.shape[2]
         samples = jax.tree_util.tree_map(
             lambda x: x.reshape((-1, *x.shape[3:])), samples
         )
 
-        rng_key, subkey = jax.random.split(rng_key)
-        ixs = jax.random.permutation(subkey, jnp.arange(samples.obs.shape[0]))
-        samples = jax.tree_util.tree_map(lambda x: x[ixs], samples)
-
-        N = samples.obs.shape[0]
-        num_updates = N // config.training_batch_size
-        if num_updates == 0:
-            # batch smaller than training_batch_size; do one update on all data
-            num_updates = 1
-            minibatches = samples
+        # --- replay buffer: append new positions, evict the oldest (FIFO) ---
+        if replay_buffer is None:
+            replay_buffer = samples
         else:
-            minibatches = jax.tree_util.tree_map(
-                lambda x: x[: num_updates * config.training_batch_size].reshape(
-                    (num_updates, config.training_batch_size, *x.shape[1:])
-                ),
+            replay_buffer = jax.tree_util.tree_map(
+                lambda old, new: np.concatenate([old, new], axis=0),
+                replay_buffer,
                 samples,
             )
+        if replay_buffer.obs.shape[0] > config.replay_buffer_size:
+            replay_buffer = jax.tree_util.tree_map(
+                lambda x: x[-config.replay_buffer_size :], replay_buffer
+            )
+        buffer_size = replay_buffer.obs.shape[0]
+        log["train/replay_buffer_size"] = buffer_size
+
+        # --- draw training minibatches from the whole buffer ---
+        # Keep the number of gradient steps per iteration fixed at
+        # _updates_per_iter (the value the lr schedule's decay horizon assumes)
+        # by sampling that many minibatches without replacement from the buffer.
+        rng_key, subkey = jax.random.split(rng_key)
+        sample_size = _updates_per_iter * config.training_batch_size
+        if buffer_size >= sample_size:
+            num_updates = _updates_per_iter
+            ixs = np.asarray(jax.random.permutation(subkey, buffer_size)[:sample_size])
+            minibatches = jax.tree_util.tree_map(
+                lambda x: x[ixs].reshape(
+                    (num_updates, config.training_batch_size, *x.shape[1:])
+                ),
+                replay_buffer,
+            )
+        else:
+            # Buffer smaller than one full sampling pass (early warmup with a
+            # tiny config): do a single update on all buffered positions.
+            num_updates = 1
+            minibatches = replay_buffer
 
         # --- training ---
         per_device_batch = config.training_batch_size // n_devices

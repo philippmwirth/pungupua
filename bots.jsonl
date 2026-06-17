@@ -1,1 +1,44 @@
-[]
+[
+    {
+        "name": "random",
+        "icon": "🎲",
+        "description": "Rah!",
+        "model_config": {
+            "num_channels": 64,
+            "num_blocks": 2,
+        },
+        "eval_config": {
+            "num_simulations": 1,
+            "gumbel_scale": 1.0,
+        },
+        "checkpoint_path": "checkpoints/bao_20260612081528/000000.ckpt",
+    },
+    {
+        "name": "angavu_0",
+        "icon": "🐠",
+        "description": "Blub!",
+        "model_config": {
+            "num_channels": 64,
+            "num_blocks": 2,
+        },
+        "eval_config": {
+            "num_simulations": 32,
+            "gumbel_scale": 1.0,
+        },
+        "checkpoint_path": "checkpoints/bao_20260612081528/000100.ckpt",
+    },
+    {
+        "name": "angavu_2",
+        "icon": "🐠",
+        "description": "Sample self-play moves by visit count for opening exploration.",
+        "model_config": {
+            "num_channels": 64,
+            "num_blocks": 2,
+        },
+        "eval_config": {
+            "num_simulations": 32,
+            "gumbel_scale": 1.0,
+        },
+        "checkpoint_path": "checkpoints/bao_20260615162506/000100.ckpt",
+    },
+]
