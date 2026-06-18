@@ -176,38 +176,45 @@ def sow(
     return new_board, nyumba_pending, pending_dir.astype(jnp.int32), nyumba_emptied
 
 
-def simulate_sow_ends_in_capture(
+def first_lap_is_capture(
     board: Array,
     row: Array,
     col: Array,
     direction: Array,
-    nyumba_active: bool | Array = True,
 ) -> Array:
-    """Return True if sowing (row, col) in direction produces a capture.
+    """Return True iff the *first lap* of sowing (row, col) ends in a capture.
 
-    Used by legal_action_mask in mtaji to detect valid capture moves.
-    Seeds must be >= 2 (singleton check done by caller).
+    A move captures only when the last seed of its very first lap lands in an
+    occupied front-row hole whose opposing hole is also occupied (the Bao rule:
+    "if the first lap of a move doesn't capture, nothing will be captured in the
+    full move").  This is the gate used in the mtaji stage to decide whether a
+    move is a capture or a takasa — relays/continuations on later laps never
+    turn a non-capturing first lap into a capture.
 
-    Implementation: runs the real `sow()` on a temp board with the source
-    cleared and checks whether `board[2]` decreased anywhere along the way.
-    This correctly accounts for `do_continue` chains that eventually lead to
-    a capture, which the previous hand-rolled simulator missed.
+    The source hole is treated as emptied first (as in a real move); the seeds
+    are deposited one per hole along the path so that ``was_occupied`` at the
+    landing hole correctly reflects any wraparound deposits.
     """
     seeds = board[row, col].astype(jnp.int16)
-    new_board = board.at[row, col].set(jnp.int16(0))
-    # If the source is the (current player's) nyumba, it's been sown out — for
-    # the rest of this move it behaves as an ordinary hole, so disable the
-    # nyumba_pending interrupt that would otherwise fire on wraparound.
-    src_is_nyumba = (row == jnp.int32(0)) & (col == jnp.int32(NYUMBA_COL))
-    eff_active = jnp.bool_(nyumba_active) & (~src_is_nyumba)
+    b0 = board.at[row, col].set(jnp.int16(0))
     nr, nc = next_pos(row, col, direction)
-    after_board, _, _, _ = sow(
-        new_board,
-        seeds,
-        nr,
-        nc,
-        direction,
-        allow_capture=True,
-        nyumba_active=eff_active,
-    )
-    return after_board[2].sum() < board[2].sum()
+
+    def cond(carry):
+        _, _, _, rem = carry
+        return rem > 0
+
+    def body(carry):
+        b, r, c, rem = carry
+        b = b.at[r, c].add(jnp.int16(1))
+        nr2, nc2 = next_pos(r, c, direction)
+        last = rem == 1
+        # Stay on the landing hole when the last seed is placed, so the caller
+        # can inspect it; otherwise advance to the next hole.
+        r2 = jnp.where(last, r, nr2)
+        c2 = jnp.where(last, c, nc2)
+        return b, r2.astype(jnp.int32), c2.astype(jnp.int32), rem - jnp.int16(1)
+
+    b, r, c, _ = jax.lax.while_loop(cond, body, (b0, nr, nc, seeds))
+    was_occupied = b[r, c] > jnp.int16(1)  # > 1 because we just added 1
+    opp_occupied = (r == 0) & (b[2, c] > 0)
+    return was_occupied & opp_occupied

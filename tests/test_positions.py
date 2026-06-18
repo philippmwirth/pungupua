@@ -485,20 +485,56 @@ def test_mtaji_takasa_from_kichwa_kimbi_is_unconstrained():
         assert bool(mask[c * 2 + 1]), f"col{c}-right mtaji takasa must be legal"
 
 
-def test_mtaji_capture_via_do_continue_chain_is_mandatory():
-    """A mtaji move whose initial sow's last seed lands at an occupied
-    non-capture hole (triggering do_continue), and whose continued chain
-    eventually produces a capture, must be classified as a capture move.
+# ---------------------------------------------------------------------------
+# Mtaji – first-lap capture rule (#8)
+# ---------------------------------------------------------------------------
+
+
+def test_mtaji_first_lap_relay_then_loaded_is_takasa_not_capture():
+    """A move whose first lap *relays* (lands in an occupied hole with an empty
+    opposite) is a takasa even if a later relay lap reaches a loaded hole — Bao
+    rule: "if the first lap doesn't capture, nothing will be captured."
+
+    Sow col2 (2 seeds) right:
+      lap 1 → col3, col4 (col4 occupied, board[2,4]=0 empty) → relay, NOT a capture
+      lap 2 → would reach board[2,6]=3, but the move is already non-capturing.
+    The move must be offered as a takasa (both directions) and capture nothing.
+    """
+    s = st([[0, 0, 2, 0, 1, 0, 1, 0], Z8, [0, 0, 0, 0, 0, 0, 3, 0], Z8])
+    mask = g.legal_action_mask(s)
+    legal = set(jnp.where(mask)[0].tolist())
+    # col2 is the only non-singleton front hole; offered as takasa both ways.
+    assert {4, 5}.issubset(legal), "col2 must be a legal takasa source both directions"
+    s2 = g.step(s, jnp.int32(5))  # col2 right
+    opp_front = s2.board[0][::-1]  # opponent front row after the flip
+    assert int(opp_front[6]) == 3, "the loaded hole must NOT be captured by a takasa"
+
+
+def test_mtaji_genuine_first_lap_capture_still_mandatory():
+    """A move whose first lap ends opposite a loaded hole is still a capture and
+    remains mandatory (regression guard for the first-lap fix)."""
+    # col0=3 right: lap 1 lands at (0,3) with board[2,3]=2 loaded → first-lap capture.
+    s = st([[3, 0, 2, 1, 0, 0, 0, 0], Z8, [0, 0, 0, 2, 0, 0, 0, 0], Z8])
+    mask = g.legal_action_mask(s)
+    legal = set(jnp.where(mask)[0].tolist())
+    assert 1 in legal, "col0-right first-lap capture must be legal"
+    assert 4 not in legal and 5 not in legal, (
+        "col2 takasa must be blocked while a real capture exists"
+    )
+
+
+def test_mtaji_capture_via_do_continue_chain_is_not_a_capture():
+    """A mtaji move whose *first lap* relays (do_continue) is NOT a capture, even
+    if the continued chain would eventually reach a loaded hole.  Per the Bao
+    first-lap rule the whole position is a takasa.
 
     Setup:
-      board[0] = [0, 2, 1, 1, 1, 1, 1, 1]
+      board[0] = [2, 2, 1, 1, 1, 1, 1, 1]
       board[2] = [0, 0, 0, 0, 0, 0, 0, 2]    (opp seeds only at col7)
-    Sow col1-right (2 seeds): place at col2 (occ), col3 (last, occ, no opp)
-    -> do_continue picks up col3's 2 seeds -> sows to col4..col5 -> do_continue
-    again -> ... eventually last seed lands at col7 with opp seeds = 2 -> capture.
-
-    Plus: a non-capturing takasa source (col0 or col6) also exists. The
-    mandatory-capture rule must hide those takasa options.
+    Sow col1-right (2 seeds): place at col2 (occ), col3 (last, occ, opp empty)
+    -> first lap relays, so the move captures nothing.  No hole has a first-lap
+    capture, so this is a takasa: the non-singleton holes col0 and col1 are
+    legal sources (both directions).
     """
     s = st(
         [[2, 2, 1, 1, 1, 1, 1, 1], Z8, [0, 0, 0, 0, 0, 0, 0, 2], Z8],
@@ -507,10 +543,12 @@ def test_mtaji_capture_via_do_continue_chain_is_mandatory():
     )
     mask = g.legal_action_mask(s)
     legal = set(jnp.where(mask)[0].tolist())
-    # The chained-capture move must be in the mask.
-    assert 3 in legal, "col1-right must be legal (chain capture detected)"
-    # Pure takasa moves must be excluded (capture is mandatory).
-    assert 0 not in legal and 1 not in legal, "col0 takasa must be hidden"
+    # Takasa situation: the two non-singleton holes are legal both directions.
+    assert legal == {0, 1, 2, 3}, f"expected col0/col1 takasa moves, got {legal}"
+    # Executing the chained move must capture nothing (opp col7 keeps its 2).
+    s2 = g.step(s, jnp.int32(3))  # col1 right
+    opp_front = s2.board[0][::-1]
+    assert int(opp_front[7]) == 2, "first-lap relay must not capture later in the chain"
 
 
 def test_mtaji_singleton_not_legal_as_takasa_source():

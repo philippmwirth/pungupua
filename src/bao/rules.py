@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from .board import kichwa_col, is_kichwa_or_kimbi, forced_direction, next_pos
-from .sowing import sow, simulate_sow_ends_in_capture
+from .sowing import sow, first_lap_is_capture
 from .state import NYUMBA_COL, OPP_NYUMBA_COL, NUM_ACTIONS, NYUMBA_STOP, NYUMBA_CONTINUE
 
 
@@ -114,8 +114,14 @@ def mtaji_step(
     """Execute one mtaji action.
 
     Returns (new_board, new_nyumba_active, nyumba_pending, pending_direction,
-             nyumba_emptied).
+             nyumba_emptied, first_lap_capture).
+
+    Captures are permitted for the whole move only when the *first lap* ends in
+    a capture (Bao rule: "if the first lap doesn't capture, nothing will be
+    captured in the full move").  When the first lap relays instead, the move is
+    a takasa and ``allow_capture`` stays False for every subsequent lap.
     """
+    cap = first_lap_is_capture(board, row, col, direction)
     seeds = board[row, col].astype(jnp.int16)
     new_board = board.at[row, col].set(jnp.int16(0))
     src_emp = (row == jnp.int32(0)) & (col == jnp.int32(NYUMBA_COL))
@@ -127,10 +133,10 @@ def mtaji_step(
         nr,
         nc,
         direction,
-        allow_capture=True,
+        allow_capture=cap,
         nyumba_active=eff_active,
     )
-    return new_board, nyumba_active, nyumba_pending, pending_dir, sow_emp | src_emp
+    return new_board, nyumba_active, nyumba_pending, pending_dir, sow_emp | src_emp, cap
 
 
 # ---------------------------------------------------------------------------
@@ -263,8 +269,12 @@ def _namua_mask(board_stock_etc) -> Array:
 
 # Vectorised mtaji capture check
 def _mtaji_capture_mask(board: Array, nyumba_active: Array) -> Array:
-    """(32,) bool: which (row, col, direction) actions produce a capture."""
-    cur_active = nyumba_active[0]
+    """(32,) bool: which (row, col, direction) actions produce a capture.
+
+    A move counts as a capture only when its *first lap* ends in a capture
+    (see ``first_lap_is_capture``); chain captures that would only materialise
+    on a later relay lap do not make the move a capture.
+    """
 
     def check(action):
         row = jnp.where(action < 16, jnp.int32(0), jnp.int32(1))
@@ -272,13 +282,7 @@ def _mtaji_capture_mask(board: Array, nyumba_active: Array) -> Array:
         col = rem // 2
         direction = rem % 2
         singleton = board[row, col] <= 1
-        return (~singleton) & simulate_sow_ends_in_capture(
-            board,
-            row,
-            col,
-            direction,
-            nyumba_active=cur_active,
-        )
+        return (~singleton) & first_lap_is_capture(board, row, col, direction)
 
     actions = jnp.arange(32, dtype=jnp.int32)
     return jax.vmap(check)(actions)

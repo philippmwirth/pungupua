@@ -118,11 +118,13 @@ class Game:
                 return b, na, stk, ny_pend, pend_dir, new_stage, pend_allow_cap
 
             def mtaji(st: GameState):
-                b, na, ny_pend, pend_dir, ny_emp = mtaji_step(
+                b, na, ny_pend, pend_dir, ny_emp, cap = mtaji_step(
                     st.board, st.nyumba_active, row, col, direction
                 )
                 na = deactivate_nyumba_if_sowed(b, na, prev_board, ny_emp)
-                return b, na, st.stock, ny_pend, pend_dir, st.stage, jnp.bool_(True)
+                # A nyumba continuation may capture only if this move started
+                # with a capture on its first lap (takasa relays stay capture-free).
+                return b, na, st.stock, ny_pend, pend_dir, st.stage, cap
 
             b, na, stk, ny_pend, pend_dir, new_stage, pend_allow_cap = jax.lax.cond(
                 s.stage == 0, namua, mtaji, s

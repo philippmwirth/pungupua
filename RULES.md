@@ -217,13 +217,13 @@ The mtaji stage begins when both players have played all seeds from their stocks
 
 ### Capture
 
-You must capture if possible. To do so, find a hole (front or back row) such that sowing its seeds causes the **last seed to land in a front-row hole with an occupied opposing hole** (that opposing hole is called the **mtaji**).
+You must capture if possible. To do so, find a hole (front or back row) such that sowing its seeds causes the **last seed of the first lap to land in a front-row hole with an occupied opposing hole** (that opposing hole is called the **mtaji**).
 
 Rules:
 - You may sow from either the front or back row.
 - You may never sow a singleton.
-- The last seed must land in the front row opposite a hole with seeds.
-- Sowing direction and all capture/continuation rules remain the same as in namua.
+- The last seed **of the first lap** must land in the front row opposite a hole with seeds. (The **first-lap rule**: if the first lap does not end in a capture, the whole move captures nothing — even if a later relay lap happens to land opposite a loaded hole. See [Takasa in Mtaji](#takasa-in-mtaji).)
+- Once the first lap captures, the chain of captures/continuations proceeds exactly as in namua.
 
 **Example:**
 
@@ -237,7 +237,7 @@ You can sow the 3-seed hole to the right (last seed lands opposite the 5 → cap
 
 ### Takasa in Mtaji
 
-If no capture is possible, play **takasa**: sow any non-singleton hole from your front row left or right. No captures occur during takasa. If no non-singleton front-row hole exists, you may instead sow any non-singleton hole from your back row.
+If no capture is possible — i.e. no hole has a **first-lap** capture — play **takasa**: sow any non-singleton hole from your front row left or right. Pick up all of the hole's seeds and sow them; if the last seed lands in an occupied hole, pick that hole up and continue in the same direction (a relay), until the last seed falls in an empty hole. **No captures occur during takasa**, even if a relay lands opposite a loaded hole. If no non-singleton front-row hole exists, you may instead sow any non-singleton hole from your back row.
 
 **Mtaji moja** (last mtaji) rule: if your opponent has only **one** mtaji hole left, you may not sow that hole in a takasa situation — doing so would deprive them of their only target. You must sow a different hole.
 
@@ -262,11 +262,13 @@ and the **Implemented?** column whether this engine encodes the rule.
 | 5 | **Singleton sowing in takasa** | Namua takasa allows any hole with *"one or more seeds"*; only mtaji forbids starting on a singleton (no exception). | Singletons may never be sown — no exception. | Must sow a hole with ≥ 2 seeds *"unless all non-empty holes in the front row are singletons."* | ❌ No (the Fandom exception is not implemented; engine allows namua-takasa singletons, forbids them in mtaji). |
 | 6 | **"Front row may never be emptied" (mtaji)** | Absent. | Absent. | Front row may never be emptied, even temporarily; a sole kichwa with ≥ 2 seeds must be sown toward the centre. | ❌ No. |
 | 7 | **Takasia / mtaji-moja** | Has mtaji-moja only: *"the only mtaji left for your opponent ... may not be sown in a takasa situation."* | Simplified: you may not sow a hole that is the opponent's only mtaji. | Fuller *takasia* rule with the "reached from a nyumba" exception; a nyumba itself cannot be takasia'd, nor the only occupied / only multi-seed hole. | ⚠️ Partial — mtaji-moja source block only (`mtaji_moja_active`). |
-| 8 | **Capture-chaining as a global invariant** | Implicit: takasa allows no captures, and *"you always keep on sowing or capturing."* | Conveyed implicitly via the takasa "no captures allowed" rule. | Stated explicitly: *"If the first lap of a move doesn't capture, nothing will be captured in the full move."* | ✅ Equivalent — takasa moves carry `allow_capture=False` for the whole move. |
+| 8 | **First-lap rule / capture-chaining** | Implicit: takasa allows no captures, and *"you always keep on sowing or capturing."* | A move captures only if its **first lap** ends in a capture; otherwise it is a takasa and captures nothing, even on a later relay lap. | Stated explicitly: *"If the first lap of a move doesn't capture, nothing will be captured in the full move."* | ✅ Yes — namua takasa runs with `allow_capture=False`; mtaji gates the whole move on `first_lap_is_capture` (`mtaji_step`, `_mtaji_capture_mask`). |
 
-> Difference **#1** is the only one whose behaviour was changed (to match Mancala
-> World, diverging from the silent GameCabinet source); the rest are documented
-> here for reference and remain as the original Nierse ruleset describes them.
+> Differences **#1** (takasa entry into the nyumba) and **#8** (the mtaji
+> first-lap rule) are enforced by the engine. The remaining rows — **#2, #3,
+> #4, #5, #6** and the fuller **#7** *takasia* — are documented here for
+> reference and are **not** implemented; they remain as the original Nierse
+> ruleset describes them.
 
 ---
 
