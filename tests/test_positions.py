@@ -316,6 +316,51 @@ def test_namua_right_kichwa_forced_left_for_capture():
 
 
 # ---------------------------------------------------------------------------
+# Namua mask – Difference #5: singleton takasa source
+# ---------------------------------------------------------------------------
+
+
+def test_namua_takasa_singleton_source_is_legal():
+    """Difference #5: in namua, a singleton front-row hole IS a legal takasa
+    source.  The stock seed added before sowing lifts it to 2, so the
+    "never sow a singleton" rule (which applies in mtaji) does not apply here.
+    """
+    # col3 holds a single seed, no opponent seeds anywhere → takasa, singleton source.
+    s = st(
+        [[0, 0, 0, 1, 0, 0, 0, 0], Z8, Z8, Z8],
+        stock=(1, 0), stage=0, na=(False, False),
+    )
+    mask = g.legal_action_mask(s)
+    legal = set(jnp.where(mask)[0].tolist())
+    assert 6 in legal and 7 in legal, (
+        "a singleton must be a legal namua takasa source in both directions"
+    )
+
+
+def test_namua_takasa_singleton_source_execution():
+    """Executing a namua takasa from a singleton: the stock seed makes it 2, both
+    seeds are picked up and sown one per hole.
+
+    col3=1, stock seed → 2, sow right from col3: land at col4 (1) and col5 (1),
+    last seed in empty col5 → move ends.  Seeds are conserved.
+    """
+    s = st(
+        [[0, 0, 0, 1, 0, 0, 0, 0], Z8, Z8, Z8],
+        stock=(1, 0), stage=0, na=(False, False),
+    )
+    total_before = int(s.board.sum()) + int(s.stock.sum())
+    s2 = g.step(s, jnp.int32(7))  # col3 right
+    your_front = s2.board[2, ::-1]  # recover your front from opponent's view
+    assert jnp.array_equal(your_front, jnp.array([0, 0, 0, 0, 1, 1, 0, 0], jnp.int16)), (
+        f"singleton takasa should sow 2 seeds into col4/col5, got {your_front.tolist()}"
+    )
+    total_after = int(s2.board.sum()) + int(s2.stock.sum())
+    assert total_before == total_after, (
+        f"seed count changed: {total_before} → {total_after}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Namua mask – Difference #1: takasa entry into the nyumba
 # ---------------------------------------------------------------------------
 

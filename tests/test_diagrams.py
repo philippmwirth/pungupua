@@ -75,6 +75,47 @@ def test_diagram3_to_4_capture_left():
     assert jnp.array_equal(result, expected), f"got {result}"
 
 
+def test_entering_more_than_one_seed_example():
+    """RULES §Entering More Than One Seed example: capture 3 seeds, sow from the
+    left kichwa into three consecutive empty holes.
+
+    Before:
+      opponent front:  0 0 0 0 3 0 0 0   (hole 5 = col4 has 3 seeds)
+      your front:      0 0 0 0 7 0 0 0   (hole 5 = col4 has 7 seeds)
+
+    The capture places one stock seed in your hole 5 (7 → 8) and removes the
+    opponent's 3 seeds.  Sowing those 3 captured seeds from the left kichwa
+    (col0, rightward) fills holes 1-3; the last seed lands in the empty hole 3
+    and the move ends:
+      your front:      1 1 1 0 8 0 0 0
+      opponent front:  0 0 0 0 0 0 0 0   (hole 5 emptied)
+    """
+    s = make_state(
+        [
+            [0, 0, 0, 0, 7, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 3, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+        ],
+        stock=(1, 0),
+        nyumba_active=(False, False),
+        stage=0,
+    )
+    # Capture at col4 is mandatory; sowing from the left kichwa = sow right = action 9.
+    mask = g.legal_action_mask(s)
+    assert set(jnp.where(mask)[0].tolist()) == {8, 9}, "only the col4 capture is legal"
+    s2 = g.step(s, jnp.int32(9))
+    assert not bool(s2.nyumba_pending), "move ends in an empty hole, no nyumba pending"
+    your_front = s2.board[2, ::-1]  # your front row, recovered from opponent's view
+    opp_front = s2.board[0, ::-1]
+    assert jnp.array_equal(your_front, jnp.array([1, 1, 1, 0, 8, 0, 0, 0], jnp.int16)), (
+        f"your front should be [1,1,1,0,8,0,0,0], got {your_front.tolist()}"
+    )
+    assert jnp.array_equal(opp_front, jnp.array([0] * 8, jnp.int16)), (
+        f"opponent front should be emptied, got {opp_front.tolist()}"
+    )
+
+
 def test_diagram14_to_15_chain_capture():
     """Diagram 14->15: col1 (left kimbi), chain capture."""
     s = make_state(

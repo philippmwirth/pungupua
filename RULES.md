@@ -100,11 +100,12 @@ If you captured multiple seeds, **sow** them one at a time into consecutive hole
 **Example** — capturing 3 seeds and sowing from the left:
 
 ```
-Before:   0 0 0 0 8 2 0 0   (opponent front row)
+Before:   0 0 0 0 3 0 0 0   (opponent front row)
           0 0 0 0 7 0 0 0   (your front row)
 
-After capture:   0 0 0 0 8 2 0 0
-                 0 0 0 0 8 0 0 0   (your hole gains 1 seed)
+Place one stock seed in your hole 5 (7 → 8) and capture the opposing 3 seeds:
+                 0 0 0 0 0 0 0 0   (opponent hole 5 emptied)
+                 0 0 0 0 8 0 0 0   (your hole 5 gains the stock seed)
 
 Sowing 3 captured seeds from left kichwa:
                  1 1 1 0 8 0 0 0   ← last seed in hole 3 (empty → move ends)
@@ -159,10 +160,12 @@ Hole order when sowing **right**: front row left-to-right, then back row right-t
 
 If you **cannot** begin a move with a capture (no occupied front-row hole has an occupied opposing hole), you must play **takasa**:
 
-1. Choose any hole in your front row that contains **2 or more seeds** (singletons may not be sown).
-2. Place one seed from your stock into it.
+1. Choose any **occupied** hole in your front row (one or more seeds — a singleton is allowed here, see below).
+2. Place one seed from your stock into it. A singleton now holds **2 seeds**, so it can be sown.
 3. Pick up all seeds from that hole and sow them left or right.
 4. **No captures are allowed** during a takasa move, even if the last seed lands opposite an occupied hole.
+
+> A **singleton may be sown as a namua takasa source**: the stock seed you add in step 2 lifts it to 2 seeds before sowing. The "never sow a singleton" rule applies only in the **mtaji stage**, where no stock seed is added (see [Takasa in Mtaji](#takasa-in-mtaji)).
 
 > **You may not enter the seed into a functional nyumba on a takasa move** unless the nyumba is the only occupied hole in your front row. See [The Nyumba](#the-nyumba-house).
 
@@ -207,7 +210,7 @@ This special rule only applies when the nyumba contains **6 or more seeds**.
 | **Occupied hole, occupied opposite** | Capture the opposing seeds and continue. |
 | **Occupied hole, empty opposite** | Pick up seeds from that hole and continue sowing in the same direction. |
 | **Empty hole** | Move ends. |
-| **No singletons** | You may never sow a hole containing only 1 seed. |
+| **No singletons (mtaji)** | In **mtaji** you may never sow a hole containing only 1 seed. In **namua takasa** a singleton may be the source — the stock seed added first makes it 2. |
 
 ---
 
@@ -259,16 +262,16 @@ and the **Implemented?** column whether this engine encodes the rule.
 | 2 | **Nyumba stop on a takasa lap (namua)** | Optional in all cases, conditioned on the opposing hole being empty: *"the player may end his turn if he wishes."* | Always optional ("may choose to end your turn"). | Mandatory: a takata lap ending in the nyumba ends the turn *"without delay"*; only a **capturing** lap offers the free choice (*safari*). | ⚠️ Partial — engine offers the optional stop/continue choice in both cases. |
 | 3 | **Nyumba stop in the mtaji stage** | Silent; mtaji "is not very different from the namua stage," implying the same optional stop. | "Same as namua" — implies the optional stop still applies. | The optional stop is namua-only; in mtaji the player **must** *safari* (continue) when a lap ends in the nyumba. | ⚠️ No — engine does not force continuation in mtaji. |
 | 4 | **16-seed capture cutoff (mtaji)** | Absent. | Absent. | *"If 16 or more seeds are sown in the first lap, nothing will be captured."* (mtaji only) | ❌ No. |
-| 5 | **Singleton sowing in takasa** | Namua takasa allows any hole with *"one or more seeds"*; only mtaji forbids starting on a singleton (no exception). | Singletons may never be sown — no exception. | Must sow a hole with ≥ 2 seeds *"unless all non-empty holes in the front row are singletons."* | ❌ No (the Fandom exception is not implemented; engine allows namua-takasa singletons, forbids them in mtaji). |
+| 5 | **Singleton sowing in takasa** | Namua takasa allows any hole with *"one or more seeds"* (the stock seed lifts a singleton to 2); only mtaji forbids starting on a singleton (no exception). | Same as GameCabinet: a singleton **may** be a namua-takasa source because the stock seed makes it ≥ 2; singletons may never be sown in mtaji. | Must sow a hole with ≥ 2 seeds *"unless all non-empty holes in the front row are singletons."* | ✅ Yes — namua takasa permits singleton sources (`_namua_mask` requires only `board[0, c] > 0`); mtaji forbids singletons (`_mtaji_capture_mask`/`_mtaji_mask`). The Mancala World *all-singletons* exception is not implemented. |
 | 6 | **"Front row may never be emptied" (mtaji)** | Absent. | Absent. | Front row may never be emptied, even temporarily; a sole kichwa with ≥ 2 seeds must be sown toward the centre. | ❌ No. |
 | 7 | **Takasia / mtaji-moja** | Has mtaji-moja only: *"the only mtaji left for your opponent ... may not be sown in a takasa situation."* | Simplified: you may not sow a hole that is the opponent's only mtaji. | Fuller *takasia* rule with the "reached from a nyumba" exception; a nyumba itself cannot be takasia'd, nor the only occupied / only multi-seed hole. | ⚠️ Partial — mtaji-moja source block only (`mtaji_moja_active`). |
 | 8 | **First-lap rule / capture-chaining** | Implicit: takasa allows no captures, and *"you always keep on sowing or capturing."* | A move captures only if its **first lap** ends in a capture; otherwise it is a takasa and captures nothing, even on a later relay lap. | Stated explicitly: *"If the first lap of a move doesn't capture, nothing will be captured in the full move."* | ✅ Yes — namua takasa runs with `allow_capture=False`; mtaji gates the whole move on `first_lap_is_capture` (`mtaji_step`, `_mtaji_capture_mask`). |
 
-> Differences **#1** (takasa entry into the nyumba) and **#8** (the mtaji
-> first-lap rule) are enforced by the engine. The remaining rows — **#2, #3,
-> #4, #5, #6** and the fuller **#7** *takasia* — are documented here for
-> reference and are **not** implemented; they remain as the original Nierse
-> ruleset describes them.
+> Differences **#1** (takasa entry into the nyumba), **#5** (singleton
+> namua-takasa sources) and **#8** (the mtaji first-lap rule) are enforced by
+> the engine. The remaining rows — **#2, #3, #4, #6** and the fuller **#7**
+> *takasia* — are documented here for reference and are **not** implemented;
+> they remain as the original Nierse ruleset describes them.
 
 ---
 
@@ -305,7 +308,7 @@ Each hole is numbered 1–8 per row. Rows are named:
 | **mtaji** | An occupied hole in the opponent's front row that is opposite the last-sown seed; also the name of the second stage |
 | **nyumba** | "House" — the marked hole (5th from the left) in each player's front row |
 | **Piga Tanji** | To attack several houses at the same time |
-| **singleton** | A hole containing exactly one seed (may never be sown) |
+| **singleton** | A hole containing exactly one seed. It may never be sown in **mtaji**; in **namua takasa** it may be the source, since the stock seed added first makes it 2 |
 | **takasa / takata** | A move played without capture |
 | **takasia** | Playing without capturing in a way that forces the opponent to also play without capturing, setting up a future capture |
 
