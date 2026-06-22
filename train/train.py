@@ -50,6 +50,9 @@ def forward_fn(x, is_eval: bool = False):
         num_actions=NUM_ACTIONS,
         num_channels=config.num_channels,
         num_blocks=config.num_blocks,
+        bottleneck=config.bottleneck,
+        bottleneck_ratio=config.bottleneck_ratio,
+        broadcast_every_n=config.broadcast_every_n,
     )
     return net(x, is_training=not is_eval, test_local_stats=False)
 

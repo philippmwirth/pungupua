@@ -10,6 +10,15 @@ class Config(BaseModel):
     # network
     num_channels: int = 64
     num_blocks: int = 2
+    # Gumbel-paper residual trunk (train/network.py). When `bottleneck` is set,
+    # blocks use a 1x1 reduce -> 3x3 -> 1x1 expand stack with the reduced width
+    # set to num_channels // bottleneck_ratio. `broadcast_every_n` (0 = never)
+    # inserts a BroadcastResBlock every n-th layer to mix info across the board.
+    # Setting either option switches the trunk from the legacy basic blocks to
+    # the Gumbel blocks.
+    bottleneck: bool = False
+    bottleneck_ratio: int = 4
+    broadcast_every_n: int = 0
 
     # self-play
     selfplay_batch_size: int = 32
