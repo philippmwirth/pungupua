@@ -41,8 +41,13 @@ class Config(BaseModel):
     learning_rate_warmup_steps: int = 100
 
     # eval
-    eval_interval: int = 10
+    eval_interval: int = 50
     use_wandb: bool = True
+    # When set (and use_wandb is on), each saved .ckpt is logged to W&B as a
+    # versioned `model` artifact named checkpoint-<run id>, with aliases
+    # `latest` and `iter-<iteration>`. Checkpoints are written at eval_interval,
+    # so that also controls the upload frequency.
+    wandb_log_checkpoints: bool = False
 
     # resuming
     resume_from: str | None = None

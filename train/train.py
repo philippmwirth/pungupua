@@ -420,7 +420,8 @@ if __name__ == "__main__":
                 )
 
             model_params, model_state = model
-            with open(os.path.join(ckpt_dir, f"{iteration:06d}.ckpt"), "wb") as f:
+            ckpt_path = os.path.join(ckpt_dir, f"{iteration:06d}.ckpt")
+            with open(ckpt_path, "wb") as f:
                 pickle.dump(
                     {
                         "config": config,
@@ -433,6 +434,24 @@ if __name__ == "__main__":
                         "grad_steps": grad_steps,
                     },
                     f,
+                )
+
+            if config.use_wandb and config.wandb_log_checkpoints:
+                import wandb
+
+                artifact = wandb.Artifact(
+                    f"checkpoint-{wandb.run.id}",
+                    type="model",
+                    metadata={
+                        "iteration": iteration,
+                        "frames": frames,
+                        "hours": hours,
+                        "grad_steps": grad_steps,
+                    },
+                )
+                artifact.add_file(ckpt_path)
+                wandb.log_artifact(
+                    artifact, aliases=["latest", f"iter-{iteration:06d}"]
                 )
 
         print(log)
@@ -534,9 +553,14 @@ if __name__ == "__main__":
             )
             policy_losses.append(pl.mean().item())
             value_losses.append(vl.mean().item())
-        # Unreplicate: all devices hold the same parameters so take the first
-        model = jax.tree_util.tree_map(lambda x: x[0], rep_model)
-        opt_state = jax.tree_util.tree_map(lambda x: x[0], rep_opt_state)
+        # Unreplicate: all devices hold the same parameters so take the first.
+        # device_get detaches the arrays from train_step's "i" device mesh;
+        # otherwise the committed sharding clashes with the anonymous mesh of
+        # the selfplay/evaluate pmaps when these params are re-replicated.
+        model = jax.device_get(jax.tree_util.tree_map(lambda x: x[0], rep_model))
+        opt_state = jax.device_get(
+            jax.tree_util.tree_map(lambda x: x[0], rep_opt_state)
+        )
         grad_steps += num_updates
 
         et = time.time()
