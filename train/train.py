@@ -72,7 +72,7 @@ lr_schedule = optax.warmup_cosine_decay_schedule(
     decay_steps=config.max_num_iters * _updates_per_iter,
     end_value=config.learning_rate_min,
 )
-optimizer = optax.adam(learning_rate=lr_schedule)
+optimizer = optax.adamw(learning_rate=lr_schedule)
 
 # ---------------------------------------------------------------------------
 # MCTS transition model
@@ -118,6 +118,7 @@ class SelfplayOutput(NamedTuple):
     terminated: jnp.ndarray
     action_weights: jnp.ndarray
     discount: jnp.ndarray
+    action: jnp.ndarray
 
 
 @jax.pmap
@@ -181,6 +182,7 @@ def selfplay(model, rng_key: jnp.ndarray) -> SelfplayOutput:
             reward=state.rewards[jnp.arange(batch_size), actor],
             terminated=state.terminated,
             discount=discount,
+            action=action,
         )
 
     rng_key, sub_key = jax.random.split(rng_key)
@@ -249,7 +251,7 @@ def train_step(model, opt_state, batch: Sample):
     grads, (model_state, policy_loss, value_loss) = jax.grad(loss_fn, has_aux=True)(
         model_params, model_state, batch
     )
-    updates, opt_state = optimizer.update(grads, opt_state)
+    updates, opt_state = optimizer.update(grads, opt_state, model_params)
     model_params = optax.apply_updates(model_params, updates)
     return (model_params, model_state), opt_state, policy_loss, value_loss
 
@@ -260,7 +262,7 @@ def train_step(model, opt_state, batch: Sample):
 
 
 @jax.pmap
-def evaluate(rng_key: jnp.ndarray, model) -> tuple[jnp.ndarray, jnp.ndarray]:
+def evaluate(rng_key: jnp.ndarray, model) -> tuple[jnp.ndarray, ...]:
     model_params, model_state = model
     batch_size = 1024
     my_player = 0
@@ -268,6 +270,29 @@ def evaluate(rng_key: jnp.ndarray, model) -> tuple[jnp.ndarray, jnp.ndarray]:
     rng_key, sub_key = jax.random.split(rng_key)
     keys = jax.random.split(sub_key, batch_size)
     state = jax.vmap(env.init)(keys)
+
+    # --- opening-position prior statistics (policy-collapse diagnostics) ---
+    # Read the network's raw policy prior at the freshly-initialised opening
+    # positions. As training collapses, the logit spread grows without bound
+    # and the Gumbel(0,1) root noise (std = pi/sqrt(6) ~= 1.28) can no longer
+    # reorder the top actions, so the first move becomes deterministic.
+    (open_logits, _), _ = forward.apply(
+        model_params, model_state, state.observation, is_eval=True
+    )
+    open_mask = state.legal_action_mask
+    neg_inf = jnp.finfo(open_logits.dtype).min
+    masked_logits = jnp.where(open_mask, open_logits, neg_inf)
+    # Gap between the two highest legal logits.
+    top2 = jax.lax.top_k(masked_logits, 2)[0]
+    open_gap = top2[:, 0] - top2[:, 1]
+    # Largest absolute legal logit.
+    open_max_abs = jnp.max(jnp.where(open_mask, jnp.abs(open_logits), 0.0), axis=-1)
+    # Prior entropy over legal actions, normalised to [0, 1] by log(#legal).
+    open_probs = jax.nn.softmax(masked_logits, axis=-1)
+    open_logp = jnp.where(open_mask, jnp.log(open_probs + 1e-12), 0.0)
+    open_entropy = -jnp.sum(open_probs * open_logp, axis=-1)
+    num_legal = jnp.sum(open_mask, axis=-1)
+    open_norm_entropy = open_entropy / jnp.log(jnp.maximum(num_legal, 2))
 
     def step_fn(carry, key):
         state, R = carry
@@ -297,7 +322,7 @@ def evaluate(rng_key: jnp.ndarray, model) -> tuple[jnp.ndarray, jnp.ndarray]:
     (_, R), (all_logits, all_terminated) = jax.lax.scan(
         step_fn, (state, jnp.zeros(batch_size)), key_seq
     )
-    return R, all_logits[:10], all_terminated
+    return R, all_logits[:10], all_terminated, open_gap, open_max_abs, open_norm_entropy
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +381,14 @@ if __name__ == "__main__":
             rep_model = jax.tree_util.tree_map(
                 lambda x: jnp.stack([x] * n_devices), model
             )
-            R, eval_logits, eval_terminated = evaluate(eval_keys, rep_model)
+            (
+                R,
+                eval_logits,
+                eval_terminated,
+                open_gap,
+                open_max_abs,
+                open_norm_entropy,
+            ) = evaluate(eval_keys, rep_model)
             # Merge device and batch dims back into flat batch
             # (n_devices, batch) → (n_devices*batch,)
             R = R.reshape(-1)
@@ -375,6 +407,10 @@ if __name__ == "__main__":
             eval_game_lengths = np.where(
                 ever_term, first_term + 1, config.max_num_steps
             )
+            # Gumbel(0,1) noise std = pi / sqrt(6); the opening logit gap is
+            # reported in these units, so values >> 1 mean the root Gumbel noise
+            # can no longer change the first move (policy collapse).
+            gumbel_std = float(np.pi / np.sqrt(6.0))
             log.update(
                 {
                     "eval/vs_random/avg_R": R.mean().item(),
@@ -384,6 +420,14 @@ if __name__ == "__main__":
                     "eval/game_length/avg": float(eval_game_lengths.mean()),
                     "eval/game_length/min": int(eval_game_lengths.min()),
                     "eval/game_length/max": int(eval_game_lengths.max()),
+                    "eval/opening/logit_gap_in_gumbel_std": float(
+                        open_gap.mean()
+                    )
+                    / gumbel_std,
+                    "eval/opening/max_abs_logit": float(open_max_abs.mean()),
+                    "eval/opening/prior_norm_entropy": float(
+                        open_norm_entropy.mean()
+                    ),
                 }
             )
             if config.use_wandb:
@@ -484,6 +528,16 @@ if __name__ == "__main__":
         ever_term = terminated_np.any(axis=0)
         game_lengths = np.where(ever_term, first_term + 1, config.max_num_steps)
 
+        # First-move diversity: entropy of the action actually played at the
+        # opening (scan step 0, where every game is freshly initialised) across
+        # the self-play batch. Collapses toward 0 as the policy fixates on a
+        # single opening move. (n_devices, max_num_steps, batch) -> (N,)
+        first_actions = jax.device_get(data.action)[:, 0, :].reshape(-1)
+        action_counts = np.bincount(first_actions, minlength=NUM_ACTIONS)
+        action_p = action_counts / action_counts.sum()
+        nz = action_p > 0
+        first_move_entropy = float(-(action_p[nz] * np.log(action_p[nz])).sum())
+
         # Flatten (n_devices, max_num_steps, batch, ...) -> (N, ...)
         samples = jax.device_get(samples)
         frames += samples.obs.shape[0] * samples.obs.shape[1] * samples.obs.shape[2]
@@ -573,6 +627,7 @@ if __name__ == "__main__":
                 "train/game_length/avg": float(game_lengths.mean()),
                 "train/game_length/min": int(game_lengths.min()),
                 "train/game_length/max": int(game_lengths.max()),
+                "train/selfplay/first_move_entropy": first_move_entropy,
                 "hours": hours,
                 "frames": frames,
             }
