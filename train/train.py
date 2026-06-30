@@ -544,6 +544,11 @@ if __name__ == "__main__":
         samples = jax.tree_util.tree_map(
             lambda x: x.reshape((-1, *x.shape[3:])), samples
         )
+        # Store observations as float16 in the host replay buffer to halve its
+        # RAM footprint. The network upcasts obs to float32 on input (AZNet),
+        # and the planes (small integer seed counts / binary features) are
+        # represented exactly in float16, so this is lossless for training.
+        samples = samples._replace(obs=samples.obs.astype(np.float16))
 
         # --- replay buffer: append new positions, evict the oldest (FIFO) ---
         if replay_buffer is None:

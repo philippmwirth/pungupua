@@ -35,7 +35,15 @@ class Config(BaseModel):
     # iteration's self-play data is appended and the oldest positions are
     # evicted once capacity is exceeded; training minibatches are drawn from the
     # whole buffer rather than only the latest round.
-    replay_buffer_size: int = 100_000
+    #
+    # Sized to retain ~50 generations of self-play (at ~98k positions/iter):
+    # too small a buffer recycles the net's own recent confident targets too
+    # fast and the opening policy collapses (observed at 1.0M ≈ 10 generations;
+    # avoided at 2.5M ≈ 25). Board-game references (AlphaZero's ~500k-game
+    # window, MiniZero's ~20 generations) put a healthy window at ~20-50
+    # generations. Obs are stored as float16 in the buffer, so 5.0M ≈ 24 GB of
+    # host RAM.
+    replay_buffer_size: int = 5_000_000
     learning_rate: float = 1e-3
     learning_rate_min: float = 1e-5
     learning_rate_warmup_steps: int = 100
